@@ -79,22 +79,15 @@ function PDFViewer({ pdfDocumentMetadata, sidebarOpen, historyOpen }: PDFViewerP
   const mathFieldRef = useRef<MathfieldElement>(null);
   const [isMathMode, setIsMathMode] = useState<boolean>(false); // State to track mode
   const [currentQueryAndResults, setCurrentQueryAndResults] = useState<{ query: string; results: SearchResult[] }[]>([]);
+  const [visibleRange, setVisibleRange] = useState({ start: 1, end: 5 })
+
 
   // const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedFormula, setSelectedFormula] = useState<string | null>(null);
-  const [searchHistory, setSearchHistory] = useState<{ query: string; results: SearchResult[] }[]>([])
-  // const [currentQueryAndResults, setCurrentQueryAndResults] = useState<
-  //   PDFSearchHistoryItem[]
-  // >([])
-  const [isHistoryOpen, setIsHistoryOpen] = useState(true)
-
-  /* ---------- Load history ---------- */
-  useEffect(() => {
+  const [searchHistory, setSearchHistory] = useState<PDFSearchHistoryItem[]>(() => {
     const stored = localStorage.getItem("pdfSearchHistory")
-    if (stored) {
-      setSearchHistory(JSON.parse(stored))
-    }
-  }, [])
+    return stored ? JSON.parse(stored) : []
+  })
 
   /* ---------- Persist history ---------- */
   useEffect(() => {
@@ -134,8 +127,9 @@ function PDFViewer({ pdfDocumentMetadata, sidebarOpen, historyOpen }: PDFViewerP
 
   /* ---------- Restore ---------- */
   const restoreFromHistory = (item: PDFSearchHistoryItem) => {
-    setCurrentQueryAndResults(prev => [item, ...prev])
-  }
+    setCurrentQueryAndResults(prev => [...prev, item])
+    setSearchHistory(prev => [item, ...prev])
+    }
 
   useEffect(() => {
       if (mathFieldRef.current) {
@@ -209,6 +203,8 @@ function PDFViewer({ pdfDocumentMetadata, sidebarOpen, historyOpen }: PDFViewerP
         .then(results => {
           console.log("Search results:", results);
           setCurrentQueryAndResults(prev => [...prev, { query: searchValue, results }]);
+          // setSearchHistory(prev => [...prev, {query: searchValue, results}]);
+          addSearch(searchValue, results);
           // Optionally clear the math field after search
           if (mathFieldRef.current) {
             mathFieldRef.current.setValue('');
@@ -235,10 +231,7 @@ function PDFViewer({ pdfDocumentMetadata, sidebarOpen, historyOpen }: PDFViewerP
           isOpen={historyOpen}
           onClear={clearHistory}
           onExport={exportHistory}
-          onSelect={(item) => {
-            // restore clicked history item to top of results
-            setCurrentQueryAndResults(prev => [item, ...prev])
-          }}
+          onSelect={restoreFromHistory}
         />
     
         {/* ================= MAIN CONTENT ================= */}
@@ -314,7 +307,7 @@ function PDFViewer({ pdfDocumentMetadata, sidebarOpen, historyOpen }: PDFViewerP
           <div style={{ flexGrow: 1, overflowY: 'auto', padding: '10px 0' }}>
             {currentQueryAndResults.length > 0 && (
               <button
-                className={styles.modeToggleButton}
+                className={styles.clearButton}
                 onClick={() => setCurrentQueryAndResults([])}
               >
                 Clear Results

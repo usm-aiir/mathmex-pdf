@@ -1,4 +1,6 @@
 import styles from "./HistorySidebar.module.css"
+import { MathJax, MathJaxContext } from "better-react-mathjax";
+import { useState } from "react"
 
 interface PDFSearchHistoryItem {
   query: string
@@ -19,8 +21,20 @@ export default function HistorySidebar({
   onClear,
   onSelect,
   onExport,
-}: HistorySidebarProps) {
+}: HistorySidebarProps) { 
+  
+  const MAX_VISIBLE_HISTORY = 20
+  const visibleHistory = history.slice(0, MAX_VISIBLE_HISTORY)
+  const [isHovered, setIsHovered] = useState(false);
+
   return (
+    <MathJaxContext
+    version={3}
+    config={{
+      tex: { inlineMath: [["\\(", "\\)"]] },
+      svg: { fontCache: "global" },
+    }}
+  >
 <aside
   className={`${styles.historySidebar} ${isOpen ? styles.open : ""}`}
 >
@@ -47,29 +61,27 @@ export default function HistorySidebar({
 
   {/* History list */}
   <div className={styles.historyList}>
-    {history.length === 0 ? (
+    {visibleHistory.length === 0 ? (
       <p className={styles.emptyHistory}>No searches yet</p>
     ) : (
-      history.map((item, index) => (
+      visibleHistory.map((item, index) => (
         <div
           key={index}
           className={styles.historyItem}
           onClick={() => onSelect(item)}
         >
           <div className={styles.historyFormula}>
-            <math-field
-              read-only
-              default-mode="inline-math"
-              virtual-keyboard-mode="off"
-            >
-              {item.query}
-            </math-field>
+            <MathJax dynamic>
+              {`\\(${item.query}\\)`}
+            </MathJax>
           </div>
+
         </div>
       ))
     )}
   </div>
 </aside>
+</MathJaxContext>
 
   )
 }

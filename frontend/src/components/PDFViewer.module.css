@@ -47,6 +47,7 @@
     white-space: nowrap; /* Prevent text wrapping */
     /* Add hover/active states if desired */
     transition: background-color 0.2s ease;
+    margin-bottom: 2px;
 }
 
 .modeToggleButton:hover {
@@ -57,7 +58,7 @@
     padding: 8px 12px;
     border: 1px solid var(--primary-accent); /* Using global.css variable */
     border-radius: 4px;
-    background-color: var(--primary-accent); /* Using global.css variable */
+    background-color: var(--accent-alt); /* Using global.css variable */
     color: white;
     cursor: pointer;
     white-space: nowrap; /* Prevent text wrapping */
@@ -66,7 +67,7 @@
 }
 
 .searchButton:hover {
-    background-color: var(--accent-alt); /* Using global.css variable */
+    background-color: var(--primary-accent); /* Using global.css variable */
     border-color: var(--accent-alt); /* Using global.css variable */
 }
 
@@ -81,4 +82,20 @@
     text-align: center;
     color: #777;
     font-size: 0.9em;
+}
+
+.clearButton {
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: var(--container-color);
+    cursor: pointer;
+    white-space: nowrap; /* Prevent text wrapping */
+    /* Add hover/active states if desired */
+    transition: background-color 0.2s ease;
+    margin-bottom: 2px;
+}
+
+.clearButton:hover {
+    background-color: #d0d0d0;
 }
