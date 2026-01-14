@@ -16,6 +16,8 @@ export interface SearchResult { // Exporting so SearchResultItem can use it
 interface QueryAndResultProps {
     query: string; // The search query, potentially containing LaTeX
     results: SearchResult[]; // Array of search results
+    setCurrentQueryAndResults: (value: any[]) => void;
+
 }
 
 // Extend HTMLElement to add MathLive specific properties for the ref
@@ -24,7 +26,7 @@ interface MathfieldElement extends HTMLElement {
     readOnly: boolean;
 }
 
-function QueryAndResult({ query, results }: QueryAndResultProps) {
+function QueryAndResult({ query, results, setCurrentQueryAndResults }: QueryAndResultProps) {
     const mathFieldRef = useRef<MathfieldElement>(null);
 
     // Use useEffect to set the LaTeX value when the query prop changes
@@ -36,6 +38,8 @@ function QueryAndResult({ query, results }: QueryAndResultProps) {
     }, [query]); // Re-run effect if the query changes
 
     return (
+        <div>
+
         <div className={styles.container}>
             {/* Query Section */}
             <div className={styles.querySection}>
@@ -56,6 +60,7 @@ function QueryAndResult({ query, results }: QueryAndResultProps) {
                     <p className={styles.noResults}>No results found for this query.</p>
                 )}
             </div>
+        </div>
         </div>
     );
 }

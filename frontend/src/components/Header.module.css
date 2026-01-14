@@ -52,6 +52,57 @@
     margin: 0;
 }
 
+.historyToggleButton {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+  
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    color: var(--button-color);
+  
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+  
+    transition: background 0.15s ease, transform 0.15s ease;
+  }
+  
+  .historyToggleButton:hover {
+    background: var(--button-color);
+    color: rgb(255,255,255);
+    transform: scale(1.05);
+  }
+  
+  .historyToggleButton:active {
+    transform: scale(0.95);
+  }
+  
+
+  .buttonContainer {
+    height: 100%;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+
+    position: absolute;
+    top: 0;
+  }
+
+  .buttonContainer.left {
+    left: 5%;
+  }
+
+  .buttonContainer.right {
+    right: 5%;
+  }
+
 /* Tablet and smaller desktop */
 @media (max-width: 768px) {
     .header {

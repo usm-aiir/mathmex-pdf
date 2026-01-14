@@ -25,7 +25,7 @@
     background-color: var(--container-color); /* Using global.css variable */
     padding: 20px;
     box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1);
-    overflow-y: auto;
+    overflow-y: hidden;
     min-width: 250px;
     display: flex;
     flex-direction: column;

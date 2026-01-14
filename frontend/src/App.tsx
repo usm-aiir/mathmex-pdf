@@ -9,7 +9,7 @@ import './App.css';
 import './styles/global.css';
 import Header from "./components/Header";
 
-export const API = import.meta.env.MODE === 'development' ? 'http://localhost:9095/pdf_reader/api' : 'https://mathmex.com/pdf_reader/api';
+export const API = import.meta.env.MODE === 'development' ? 'http://localhost:5010/pdf_reader/api' : 'https://mathmex.com/pdf_reader/api';
 
 /**
  * Fetches mathematical formula regions from a PDF file.
@@ -67,10 +67,11 @@ async function fetchPDFRegions(pdfUrl: string): Promise<FormulaRegion[]> {
  * @param {string} pdfUrl - The URL of the PDF document to extract regions from.
  * @returns {Promise<Array<Object>>} A promise that resolves to an array of region objects.
  */
-async function fetchPDFMetadata(pdfUrl: string, onProgress: (progress: number) => void): Promise<PDFDocumentMetadata> {
+async function fetchPDFMetadata(pdfUrl: string, onProgress: (progress: number) => void): Promise<PDFDocumentMetadata & { formulas: string[] }> {
   const regions = await fetchPDFRegions(pdfUrl);
   onProgress(50); // Update progress after fetching regions
   let regionsLoaded = 0;
+  const formulas: string[] = [];
   // Make it so that the regions are all fetched in parallel
   const fetchPromises = regions.map(region =>
     fetch(`${API}/get_latex_for_region/${region.id}/${pdfUrl}`)
@@ -93,11 +94,18 @@ async function fetchPDFMetadata(pdfUrl: string, onProgress: (progress: number) =
   const latexResults = await Promise.all(fetchPromises);
   for (const region of regions) {
     const latexResult = latexResults.find(result => result.id === region.id);
-    region.latex = latexResult ? latexResult.latex : '[Formula loading error]';
+    const latex = latexResult ? latexResult.latex : '[Formula loading error]';
+
+    region.latex = latex;
+
+    if (latex.trim()) {
+      formulas.push(latex);
+    }
   }
   return {
     url: pdfUrl,
     regions,
+    formulas
   };
 }
 
@@ -107,7 +115,7 @@ function App() {
   const pdfUrl = delimiterIndex !== -1 ? path.substring(delimiterIndex + 5) : '';
   if (!pdfUrl || pdfUrl.trim() === '') {
     return <>
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden',position: "relative", }}>
         <Header />
         <PDFOpener />
       </div>
@@ -116,6 +124,9 @@ function App() {
   const [pdfDocumentMetadata, setPdfDocumentMetadata] = useState<PDFDocumentMetadata | null>(null);
   const [progress, setProgress] = useState(0);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedFormula, setSelectedFormula] = useState<string | null>(null);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false)
   useEffect(() => {
     fetchPDFMetadata(pdfUrl, (progressValue: number) => {
       setProgress(progressValue);
@@ -139,12 +150,47 @@ function App() {
       </div>
     );
   }
+  const handleFormulaClick = (latex: string) => {
+    setSelectedFormula(latex); 
+  };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
-      <Header />
-      <PDFViewer pdfDocumentMetadata={pdfDocumentMetadata} />
+      <Header
+  isHistoryOpen={isHistoryOpen}
+  onToggleHistory={() => setIsHistoryOpen(prev => !prev)}
+/>
+  
+      {/* Toggle sidebar button */}
+      <button
+  onClick={() => setSidebarOpen(!sidebarOpen)}
+  style={{
+    position: "fixed",
+    top: "50%",                  // vertically centered
+    right: sidebarOpen ? "385px" : "15px", // sidebar width
+    transform: "translateY(-50%) rotate(-90deg)", // rotate and center
+    transformOrigin: "right center", // rotate around the edge
+    zIndex: 1000,
+    padding: "0.5rem 1rem",
+    borderRadius: "0.25rem 0.25rem 0.25rem  0.25rem",
+    backgroundColor: "#a200ff",
+    border: "2px solid #fff",
+    color: "#fff",
+    cursor: "pointer",
+    transition: "right 0.4s ease",
+    whiteSpace: "nowrap",       // prevent text wrap after rotation
+  }}
+>
+  {sidebarOpen ? "Hide Formulas" : "Show Formulas"}
+</button>
+
+  
+      <PDFViewer
+        pdfDocumentMetadata={pdfDocumentMetadata}
+        sidebarOpen={sidebarOpen} // pass the toggle state
+        historyOpen={isHistoryOpen}
+      />
     </div>
   );
 }
-
-export default App
+  export default App;
+  

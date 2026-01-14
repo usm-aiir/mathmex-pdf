@@ -15,9 +15,12 @@ import "mathlive"
 import { API } from '../App';
 import type { SearchResult } from './QueryAndResult';
 import QueryAndResult from './QueryAndResult';
+import FormulaSidebar from './FormulaSidebar';
+import HistorySidebar from "./HistorySidebar"
 
 // Import the CSS module
 import styles from './PDFViewer.module.css';
+import formulaStyles from './FormulaSidebar.module.css';
 
 // Add TypeScript declaration for the custom element
 declare global {
@@ -55,6 +58,8 @@ async function performSearch(query: string): Promise<SearchResult[]> {
 
 interface PDFViewerProps {
     pdfDocumentMetadata?: PDFDocumentMetadata;
+    sidebarOpen: boolean;
+    historyOpen: boolean;
 }
 
 interface MathfieldElement extends HTMLElement {
@@ -65,10 +70,72 @@ interface MathfieldElement extends HTMLElement {
   latex: string;
 }
 
-function PDFViewer({ pdfDocumentMetadata }: PDFViewerProps) {
+interface PDFSearchHistoryItem {
+  query: string
+  results: SearchResult[]
+}
+
+function PDFViewer({ pdfDocumentMetadata, sidebarOpen, historyOpen }: PDFViewerProps,) {
   const mathFieldRef = useRef<MathfieldElement>(null);
   const [isMathMode, setIsMathMode] = useState<boolean>(false); // State to track mode
   const [currentQueryAndResults, setCurrentQueryAndResults] = useState<{ query: string; results: SearchResult[] }[]>([]);
+
+  // const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [selectedFormula, setSelectedFormula] = useState<string | null>(null);
+  const [searchHistory, setSearchHistory] = useState<{ query: string; results: SearchResult[] }[]>([])
+  // const [currentQueryAndResults, setCurrentQueryAndResults] = useState<
+  //   PDFSearchHistoryItem[]
+  // >([])
+  const [isHistoryOpen, setIsHistoryOpen] = useState(true)
+
+  /* ---------- Load history ---------- */
+  useEffect(() => {
+    const stored = localStorage.getItem("pdfSearchHistory")
+    if (stored) {
+      setSearchHistory(JSON.parse(stored))
+    }
+  }, [])
+
+  /* ---------- Persist history ---------- */
+  useEffect(() => {
+    localStorage.setItem(
+      "pdfSearchHistory",
+      JSON.stringify(searchHistory)
+    )
+  }, [searchHistory])
+
+  /* ---------- Add search ---------- */
+  const addSearch = (query: string, results: SearchResult[]) => {
+    const item = { query, results }
+    setSearchHistory(prev => [item, ...prev])
+    setCurrentQueryAndResults(prev => [item, ...prev])
+  }
+
+  /* ---------- Clear history ---------- */
+  const clearHistory = () => {
+    setSearchHistory([])
+    localStorage.removeItem("pdfSearchHistory")
+  }
+
+  /* ---------- Export ---------- */
+  const exportHistory = () => {
+    const blob = new Blob(
+      [JSON.stringify(searchHistory, null, 2)],
+      { type: "application/json" }
+    )
+
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "pdf-search-history.json"
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  /* ---------- Restore ---------- */
+  const restoreFromHistory = (item: PDFSearchHistoryItem) => {
+    setCurrentQueryAndResults(prev => [item, ...prev])
+  }
 
   useEffect(() => {
       if (mathFieldRef.current) {
@@ -109,6 +176,16 @@ function PDFViewer({ pdfDocumentMetadata }: PDFViewerProps) {
     console.error('PDF load error:', error);
     console.error('Error details:', error.message);
   }
+
+  const handleFormulaClick = (latex: string) => {
+    if (mathFieldRef.current) {
+      // Insert formula at current cursor position
+      const currentValue = mathFieldRef.current.getValue();
+      const separator = currentValue && !currentValue.endsWith(' ') ? ' ' : '';
+      mathFieldRef.current.setValue(currentValue + separator + latex);
+      mathFieldRef.current.focus(); // keep focus for immediate editing/searching
+    }
+  };
 
   const pageNumbers = Array.from({ length: numPages || 0 }, (_, i) => i + 1);
 
@@ -151,66 +228,120 @@ function PDFViewer({ pdfDocumentMetadata }: PDFViewerProps) {
   }, [mathFieldRef.current?.latex]);
 
   return (
-    <div className={styles.container}>
-      <div className={styles.content}>
-        <Document
-          file={`${API}/get_pdf/${pdfDocumentMetadata?.url}`}
-          onLoadSuccess={onDocumentLoadSuccess}
-          onLoadError={onDocumentLoadError}
-        >
-          {pageNumbers.map((pageNumber) => (
-            <div key={pageNumber} className={styles.pdfPageWrapper}>
-              <PDFPage
-                pageNumber={pageNumber}
-                regions={pdfDocumentMetadata?.regions.filter(region => region.pageNumber === pageNumber) || []}
-                pdfUrl={pdfDocumentMetadata?.url || ''}
-                onHighlightClick={latex => {
-                  if (mathFieldRef.current) {
-                    mathFieldRef.current.setValue(mathFieldRef.current.getValue() + ' ' + latex);
-                    mathFieldRef.current.focus();
+      <div className={styles.container}>
+        {/* ================= HISTORY SIDEBAR (NEW) ================= */}
+        <HistorySidebar
+          history={searchHistory}
+          isOpen={historyOpen}
+          onClear={clearHistory}
+          onExport={exportHistory}
+          onSelect={(item) => {
+            // restore clicked history item to top of results
+            setCurrentQueryAndResults(prev => [item, ...prev])
+          }}
+        />
+    
+        {/* ================= MAIN CONTENT ================= */}
+        <div className={styles.content}>
+          <Document
+            file={`${API}/get_pdf/${pdfDocumentMetadata?.url}`}
+            onLoadSuccess={onDocumentLoadSuccess}
+            onLoadError={onDocumentLoadError}
+          >
+            {pageNumbers.map((pageNumber) => (
+              <div key={pageNumber} className={styles.pdfPageWrapper}>
+                <PDFPage
+                  pageNumber={pageNumber}
+                  regions={
+                    pdfDocumentMetadata?.regions.filter(
+                      region => region.pageNumber === pageNumber
+                    ) || []
                   }
-                }}
-              />
-            </div>
-          ))}
-        </Document>
-        <SelectionButton onAction={handleSelectionAction} />
-      </div>
-      <div className={styles.sidebar}>
-        <div className={styles.searchBarContainer}>
-          <button
-            className={styles.modeToggleButton}
-            onClick={() => setIsMathMode(!isMathMode)}
-            title={isMathMode ? "Switch to Text Mode" : "Switch to Math Mode"}
-          >
-            {isMathMode ? "𝟄𝐚𝐛𝐜" : "𝑎𝑏𝑐"} {/* Unicode characters for visual representation */}
-          </button>
-          <math-field ref={mathFieldRef} placeholder="\[Search\ mathematics...\]" style={{ flexGrow: 1 }}></math-field>
-          <button
-            className={styles.searchButton}
-            onClick={handleSearch}
-          >
-            Search
-          </button>
+                  pdfUrl={pdfDocumentMetadata?.url || ''}
+                  onHighlightClick={latex => {
+                    if (mathFieldRef.current) {
+                      mathFieldRef.current.setValue(
+                        mathFieldRef.current.getValue() + ' ' + latex
+                      )
+                      mathFieldRef.current.focus()
+                    }
+                  }}
+                />
+              </div>
+            ))}
+          </Document>
+    
+          <SelectionButton onAction={handleSelectionAction} />
         </div>
-        <div style={{ flexGrow: 1, overflowY: 'auto', padding: '10px 0' }}>
-          {currentQueryAndResults.length > 0 ? (
-            currentQueryAndResults.map((item, index) => (
-              <QueryAndResult
-                key={index}
-                query={item.query}
-                results={item.results}
-              />
-            ))
-          ) : (
-                        <p className={styles.noResultsMessage}>
-                            Perform a search to see results here.
-                        </p>
-                    )}
-                </div>
+    
+        {/* ================= RIGHT SIDEBAR ================= */}
+        <div className={styles.sidebar}>
+          {/* ---------- Search Bar ---------- */}
+          <div className={styles.searchBarContainer}>
+            <button
+              className={styles.modeToggleButton}
+              onClick={() => setIsMathMode(!isMathMode)}
+              title={isMathMode ? "Switch to Text Mode" : "Switch to Math Mode"}
+            >
+              {isMathMode ? "𝟄𝐚𝐛𝐜" : "𝑎𝑏𝑐"}
+            </button>
+    
+            <math-field
+              ref={mathFieldRef}
+              placeholder="\[Search\ mathematics...\]"
+              style={{ flexGrow: 1 }}
+            ></math-field>
+    
+            <button
+              className={styles.searchButton}
+              onClick={handleSearch}
+            >
+              Search
+            </button>
+          </div>
+    
+          {/* ---------- Formula Sidebar ---------- */}
+          {pdfDocumentMetadata?.formulas && (
+            <FormulaSidebar
+              formulas={pdfDocumentMetadata.formulas}
+              isOpen={sidebarOpen}
+              selectedFormula={selectedFormula}
+              onFormulaClick={handleFormulaClick}
+            />
+          )}
+    
+          {/* ---------- Search Results ---------- */}
+          <div style={{ flexGrow: 1, overflowY: 'auto', padding: '10px 0' }}>
+            {currentQueryAndResults.length > 0 && (
+              <button
+                className={styles.modeToggleButton}
+                onClick={() => setCurrentQueryAndResults([])}
+              >
+                Clear Results
+              </button>
+            )}
+    
+            {currentQueryAndResults.length > 0 ? (
+              currentQueryAndResults
+                .slice()
+                .reverse()   // newest first
+                .map((item, index) => (
+                  <QueryAndResult
+                    key={index}
+                    query={item.query}
+                    results={item.results}
+                    setCurrentQueryAndResults={setCurrentQueryAndResults}
+                  />
+                ))
+            ) : (
+              <p className={styles.noResultsMessage}>
+                Perform a search to see results here.
+              </p>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
-  );
-}
-
-export default PDFViewer;
+    )
+    
+}  
+  export default PDFViewer;
