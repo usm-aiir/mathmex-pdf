@@ -21,8 +21,13 @@ const SearchResultItem: React.FC<SearchResultItemProps> = ({ result }) => {
     }, [result.title, result.body_text]);
 
     return (
-        <a
-            href={result.link}
+        <a  
+            href={
+                result.media_type !== "pdf"
+                ? result.link
+                : "http://mathmex.com/pdf_reader//pdf/https://arxiv.org/pdf/" + result.link.substring(0, result.link.length - 5)
+                // Open PDFs in new tab with PDF Reader.
+            }
             target="_blank" // Open link in new tab
             rel="noopener noreferrer" // Security best practice for target="_blank"
             className={styles.item}
