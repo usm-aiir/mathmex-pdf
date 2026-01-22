@@ -1,7 +1,8 @@
 import styles from "./FormulaSidebar.module.css";
 import { MathJax, MathJaxContext } from "better-react-mathjax";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useRef } from "react";
+import { useRef, memo } from "react";
+import CachedFormula from "./CachedFormula";
 
 interface FormulaSidebarProps {
   formulas?: string[];
@@ -10,7 +11,7 @@ interface FormulaSidebarProps {
   onFormulaClick: (latex: string) => void;
 }
 
-export default function FormulaSidebar({
+function FormulaSidebar({
   formulas = [],
   isOpen,
   selectedFormula,
@@ -27,12 +28,12 @@ export default function FormulaSidebar({
 
   return (
     <MathJaxContext
-      version={3}
-      config={{
-        tex: { inlineMath: [["\\(", "\\)"]] },
-        svg: { fontCache: "global" },
-      }}
-    >
+    version={3}
+    config={{
+      tex: { inlineMath: [["\\(", "\\)"]] },
+      svg: { fontCache: "global" },
+    }}
+  >
       <aside className={`${styles.sidebar} ${isOpen ? styles.open : styles.closed}`}>
         <div className={styles.header}>Extracted Formulas</div>
 
@@ -72,8 +73,9 @@ export default function FormulaSidebar({
                         isSelected ? styles.selected : ""
                       }`}
                     >
-                      <MathJax dynamic>{`\\(${latex}\\)`}</MathJax>
-                    </button>
+      <MathJax hideUntilTypeset="first">
+        {`\\(${latex}\\)`}
+        </MathJax></button>
                   </div>
                 );
               })}
@@ -81,6 +83,13 @@ export default function FormulaSidebar({
           </div>
         )}
       </aside>
-    </MathJaxContext>
+      </MathJaxContext>
+
   );
 }
+
+export default memo(FormulaSidebar, (prev, next) =>
+  prev.isOpen === next.isOpen &&
+  prev.selectedFormula === next.selectedFormula &&
+  prev.formulas === next.formulas
+);

@@ -5,8 +5,9 @@
     flex-grow: 1;
     min-height: 0;
     overflow: hidden; /* Prevents body scroll if internal elements overflow */
-    width: 100vw;
+    width: 100%;
     background-color: var(--background-color); /* Using global.css variable */
+    justify-content: center;
 }
 
 .content {
@@ -99,3 +100,36 @@
 .clearButton:hover {
     background-color: #d0d0d0;
 }
+
+.pdfWrapper {
+    display: flex;
+    flex-direction: column; /* stack pages vertically */
+    align-items: center;    /* horizontally center all pages */
+    justify-content: flex-start; /* start at top */
+    width: 100%;
+  }
+  
+  .pdfPage {
+    margin-bottom: 20px; /* optional spacing between pages */
+  }
+  
+  .pdfColumn {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    min-width: fit-content;          /* shrink when loading */
+    background-color: var(--container-color); /* full-height background */
+    justify-content: flex-start;     /* aligns content at top */
+    height: 100%;                    /* fills parent vertically */
+    box-sizing: border-box;
+    padding: 20px;
+  }
+  
+  .pdfContent {
+    flex: 1;                         /* fill available space */
+    overflow-y: auto;                /* scroll if PDF is taller than div */
+    display: flex;
+    justify-content: center;         /* center PDF horizontally */
+    align-items: flex-start;         /* start at top */
+  }
+  

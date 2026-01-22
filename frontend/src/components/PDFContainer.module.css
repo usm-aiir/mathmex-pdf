@@ -1,0 +1,6 @@
+.pdf-shell {
+    transition: margin-right 0.25s ease;
+  }
+  .pdf-shell.with-formulas {
+    margin-right: 380px;
+  }

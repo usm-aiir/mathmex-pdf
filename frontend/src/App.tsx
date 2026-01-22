@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import type { FormulaRegion, PDFDocumentMetadata } from "./types";
-import PDFViewer from "./components/PDFViewer";
 import PDFOpener from "./components/PDFOpener";
 import PDFLoadingPage from "./components/PDFLoadingPage";
 import PDFErrorPage from "./components/PDFErrorPage";
@@ -8,6 +7,8 @@ import FormulaSidebar from "./components/FormulaSidebar";
 import type { SearchResult } from "./components/QueryAndResult";
 import HistorySidebar from "./components/HistorySidebar";
 import PDFContainer from "./components/PDFContainer";
+import QueryAndResult from "./components/QueryAndResult";
+import PDFstyles from './components/PDFViewer.module.css';
 
 import './App.css';
 import './styles/global.css';
@@ -78,6 +79,7 @@ async function fetchPDFMetadata(pdfUrl: string, onProgress: (progress: number) =
   let regionsLoaded = 0;
   const formulas: string[] = [];
   // Make it so that the regions are all fetched in parallel
+  
   const fetchPromises = regions.map(region =>
     fetch(`${API}/get_latex_for_region/${region.id}/${pdfUrl}`)
       .then(response => {
@@ -96,6 +98,7 @@ async function fetchPDFMetadata(pdfUrl: string, onProgress: (progress: number) =
         }));
       })
   );
+
   const latexResults = await Promise.all(fetchPromises);
   for (const region of regions) {
     const latexResult = latexResults.find(result => result.id === region.id);
@@ -145,12 +148,55 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedFormula, setSelectedFormula] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
-  const [currentQueryAndResults, setCurrentQueryAndResults] = useState<{ query: string; results: SearchResult[] }[]>([]);
   const [searchHistory, setSearchHistory] = useState<PDFSearchHistoryItem[]>(() => {
     const stored = localStorage.getItem("pdfSearchHistory")
     return stored ? JSON.parse(stored) : []
   })
+  const [isMathMode, setIsMathMode] = useState<boolean>(false); // State to track mode
+
+const [currentQueryAndResults, setCurrentQueryAndResults] = useState<{
+  query: string;
+  results: SearchResult[];
+}[]>([]);
+
+useEffect(() => {
+  const element = mathFieldRef.current;
+  if (!element) return; // Bail out if ref not yet assigned
+
+  // Initialize in text mode
+  element.executeCommand("switchMode", "text");
+  element.focus();
+
+  // Input handler
+  const handleInput = () => {
+    if (element.getValue().trim() === '') {
+      element.executeCommand("switchMode", "text");
+    }
+  };
+
+  // Mode change handler
+  const handleModeChange = (event: CustomEvent) => {
+    setIsMathMode(event.detail.mode === 'math');
+  };
+
+  element.addEventListener('input', handleInput);
+  element.addEventListener('mode-change', handleModeChange);
+
+  return () => {
+    element.removeEventListener('input', handleInput);
+    element.removeEventListener('mode-change', handleModeChange);
+  };
+}, []); // run once
+useEffect(() => {
+  if (mathFieldRef.current) {
+    mathFieldRef.current.executeCommand("switchMode", isMathMode ? "math" : "text");
+    mathFieldRef.current.focus(); // Keep focus on the mathfield after mode switch
+  }
+}, [isMathMode]); // Re-run when isMathMode changes
+
+
   useEffect(() => {
+
     fetchPDFMetadata(pdfUrl, (progressValue: number) => {
       setProgress(progressValue);
     })
@@ -189,8 +235,57 @@ function App() {
       mathFieldRef.current.focus(); // keep focus for immediate editing/searching
     }
   };
+  const handleSearch = () => {
+    const searchValue = mathFieldRef.current?.getValue();
+    if (searchValue) {
+      console.log("Performing search for:", searchValue);
+      performSearch(searchValue)
+        .then(results => {
+          addSearch(searchValue, results);
+          if (mathFieldRef.current) {
+            mathFieldRef.current.setValue('');
+            mathFieldRef.current.focus();
+          }
+        })
+        .catch(error => {
+          console.error("Search failed:", error);
+        });
+    } else {
+      console.warn("Search initiated, but the MathField is empty.");
+    }
+  };
 
+  async function performSearch(query: string): Promise<SearchResult[]> {
+    try {
+      const result = await fetch(`${API}/search`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: query,
+          sources: [],
+          mediaTypes: [],
+          from: 0,
+          size: 5
+        })
+      });
+      const json = await result.json();
+      console.log("Search results:", json.results);
+      return json.results as SearchResult[];
+    }
+    catch (error) {
+      console.error("Error performing search:", error);
+      throw error; // Re-throw the error for further handling
+    }
+  }
 
+    /* ---------- Add search ---------- */
+    const addSearch = (query: string, results: SearchResult[]) => {
+      const item = { query, results }
+      setSearchHistory(prev => [item, ...prev])
+      setCurrentQueryAndResults(prev => [item, ...prev])
+    }
 
     /* ---------- Restore ---------- */
     const restoreFromHistory = (item: PDFSearchHistoryItem) => {
@@ -222,45 +317,47 @@ function App() {
     
       
   
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
-      <Header
-  isHistoryOpen={isHistoryOpen}
-  onToggleHistory={() => setIsHistoryOpen(prev => !prev)}
-/>
-
-        {/* ================= HISTORY SIDEBAR (NEW) ================= */}
-        {/* <HistorySidebar
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw' }}>
+        {/* ---------- HEADER ---------- */}
+        <Header
+          isHistoryOpen={isHistoryOpen}
+          onToggleHistory={() => setIsHistoryOpen(prev => !prev)}
+        />
+    
+        {/* ================= HISTORY SIDEBAR ================= */}
+        <HistorySidebar
           history={searchHistory}
           isOpen={isHistoryOpen}
           onClear={clearHistory}
           onExport={exportHistory}
           onSelect={restoreFromHistory}
-        /> */}
-  
-      {/* Toggle sidebar button */}
-      <button
-  onClick={() => setSidebarOpen(!sidebarOpen)}
-  style={{
-    position: "fixed",
-    top: "50%",                  // vertically centered
-    right: sidebarOpen ? "385px" : "15px", // sidebar width
-    transform: "translateY(-50%) rotate(-90deg)", // rotate and center
-    transformOrigin: "right center", // rotate around the edge
-    zIndex: 1000,
-    padding: "0.5rem 1rem",
-    borderRadius: "0.25rem 0.25rem 0.25rem  0.25rem",
-    backgroundColor: "#a200ff",
-    border: "2px solid #fff",
-    color: "#fff",
-    cursor: "pointer",
-    transition: "right 0.4s ease",
-    whiteSpace: "nowrap",       // prevent text wrap after rotation
-  }}
->
-  {sidebarOpen ? "Hide Formulas" : "Show Formulas"}
-</button>
-        {/* ---------- Formula Sidebar ---------- */}
+        />
+    
+        {/* ---------- FORMULA SIDEBAR TOGGLE ---------- */}
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          style={{
+            position: "fixed",
+            top: "50%",
+            right: sidebarOpen ? "385px" : "15px",
+            transform: "translateY(-50%) rotate(-90deg)",
+            transformOrigin: "right center",
+            zIndex: 1000,
+            padding: "0.5rem 1rem",
+            borderRadius: "0.25rem",
+            backgroundColor: "#a200ff",
+            border: "2px solid #fff",
+            color: "#fff",
+            cursor: "pointer",
+            transition: "right 0.4s ease",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {sidebarOpen ? "Hide Formulas" : "Show Formulas"}
+        </button>
+    
+        {/* ---------- FORMULA SIDEBAR ---------- */}
         {pdfDocumentMetadata?.formulas && (
           <FormulaSidebar
             formulas={pdfDocumentMetadata.formulas}
@@ -269,14 +366,78 @@ function App() {
             onFormulaClick={handleFormulaClick}
           />
         )}
-  
-  <PDFContainer
-  pdfUrl={pdfUrl}
-  sidebarOpen={sidebarOpen}
-  historyOpen={isHistoryOpen}
-/>
-    </div>
-  );
-}
+    
+        {/* ---------- MAIN CONTENT: PDF + RIGHT SIDEBAR ---------- */}
+        <div style={{ display: "flex", flexGrow: 1, width: "100%", overflowY: "auto" }}>
+          
+          {/* Left: PDF Viewer (50%) */}
+          <div style={{ width: "50%", overflowY: "auto" }} >
+            <PDFContainer 
+            pdfDocumentMetadata={pdfDocumentMetadata}
+            onFormulaClick={handleFormulaClick}
+            mathFieldRef={mathFieldRef}
+             />
+          </div>
+    
+          {/* Right: Query + Search Results Sidebar (50%) */}
+          <div className={PDFstyles.sidebar} style={{ width: "50%", display: "flex", flexDirection: "column" }}>
+            
+            {/* ---------- Search Bar ---------- */}
+            <div className={PDFstyles.searchBarContainer}>
+              <button
+                className={PDFstyles.modeToggleButton}
+                onClick={() => setIsMathMode(!isMathMode)}
+                title={isMathMode ? "Switch to Text Mode" : "Switch to Math Mode"}
+              >
+                {isMathMode ? "𝟄𝐚𝐛𝐜" : "𝑎𝑏𝑐"}
+              </button>
+    
+              <math-field
+                ref={mathFieldRef}
+                placeholder="\[Search\ mathematics...\]"
+                style={{ flexGrow: 1 }}
+              ></math-field>
+    
+              <button
+                className={PDFstyles.searchButton}
+                onClick={handleSearch}
+              >
+                Search
+              </button>
+            </div>
+    
+            {/* ---------- Search Results ---------- */}
+            <div style={{ flexGrow: 1, overflowY: "auto", marginTop: "10px" }}>
+              {currentQueryAndResults.length > 0 && (
+                <button
+                  className={PDFstyles.clearButton}
+                  onClick={() => setCurrentQueryAndResults([])}
+                >
+                  Clear Results
+                </button>
+              )}
+    
+              {currentQueryAndResults.length > 0 ? (
+                currentQueryAndResults
+                  .slice()
+                  .reverse()
+                  .map((item, index) => (
+                    <QueryAndResult
+                      key={index}
+                      query={item.query}
+                      results={item.results}
+                    />
+                  ))
+              ) : (
+                <p className={PDFstyles.noResultsMessage}>
+                  Perform a search to see results here.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+    }
   export default App;
   
