@@ -1,6 +1,7 @@
 import styles from "./FormulaSidebar.module.css";
 import { MathJax, MathJaxContext } from "better-react-mathjax";
-
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useRef } from "react";
 
 interface FormulaSidebarProps {
   formulas?: string[];
@@ -15,35 +16,70 @@ export default function FormulaSidebar({
   selectedFormula,
   onFormulaClick,
 }: FormulaSidebarProps) {
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const rowVirtualizer = useVirtualizer({
+    count: formulas.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 64, // row height
+    overscan: 6,
+  });
+
   return (
     <MathJaxContext
-      version={3} // Use MathJax v3
+      version={3}
       config={{
-        tex: { inlineMath: [["\\(", "\\)"]] }, // Configure inline math delimiters
-        svg: { fontCache: "global" },          // Optional SVG config
+        tex: { inlineMath: [["\\(", "\\)"]] },
+        svg: { fontCache: "global" },
       }}
     >
       <aside className={`${styles.sidebar} ${isOpen ? styles.open : styles.closed}`}>
         <div className={styles.header}>Extracted Formulas</div>
 
-        {formulas.length === 0 && (
+        {formulas.length === 0 ? (
           <p className={styles.empty}>No formulas found.</p>
-        )}
+        ) : (
+          <div
+            ref={parentRef}
+            className={styles.formulaList}
+            style={{ overflow: "auto" }}
+          >
+            <div
+              style={{
+                height: `${rowVirtualizer.getTotalSize()}px`,
+                width: "100%",
+                position: "relative",
+              }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const latex = formulas[virtualRow.index];
+                const isSelected = selectedFormula === latex;
 
-        <div className={styles.formulaList}>
-          {formulas.map((latex, i) => {
-            const isSelected = selectedFormula === latex;
-            return (
-              <button
-                key={i}
-                onClick={() => onFormulaClick(latex)}
-                className={`${styles.formulaButton} ${isSelected ? styles.selected : ""}`}
-              >
-                <MathJax dynamic>{`\\(${latex}\\)`}</MathJax>
-              </button>
-            );
-          })}
-        </div>
+                return (
+                  <div
+                    key={virtualRow.key}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <button
+                      onClick={() => onFormulaClick(latex)}
+                      className={`${styles.formulaButton} ${
+                        isSelected ? styles.selected : ""
+                      }`}
+                    >
+                      <MathJax dynamic>{`\\(${latex}\\)`}</MathJax>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </aside>
     </MathJaxContext>
   );

@@ -1,9 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { FormulaRegion, PDFDocumentMetadata } from "./types";
 import PDFViewer from "./components/PDFViewer";
 import PDFOpener from "./components/PDFOpener";
 import PDFLoadingPage from "./components/PDFLoadingPage";
 import PDFErrorPage from "./components/PDFErrorPage";
+import FormulaSidebar from "./components/FormulaSidebar";
+import type { SearchResult } from "./components/QueryAndResult";
+import HistorySidebar from "./components/HistorySidebar";
+import PDFContainer from "./components/PDFContainer";
 
 import './App.css';
 import './styles/global.css';
@@ -55,6 +59,7 @@ async function fetchPDFRegions(pdfUrl: string): Promise<FormulaRegion[]> {
     },
   }));
 }
+ 
 
 /**
  * Fetches and retrieves regions from a PDF document based on the provided URL.
@@ -109,10 +114,23 @@ async function fetchPDFMetadata(pdfUrl: string, onProgress: (progress: number) =
   };
 }
 
+interface MathfieldElement extends HTMLElement {
+  executeCommand: (command: string, ...args: any[]) => void;
+  focus: () => void;
+  setValue: (value: string) => void;
+  getValue: () => string;
+  latex: string;
+}
+interface PDFSearchHistoryItem {
+  query: string
+  results: SearchResult[]
+}
+
 function App() {
   const path = window.location.pathname;
   const delimiterIndex = path.indexOf('/pdf/');
   const pdfUrl = delimiterIndex !== -1 ? path.substring(delimiterIndex + 5) : '';
+  const mathFieldRef = useRef<MathfieldElement>(null);
   if (!pdfUrl || pdfUrl.trim() === '') {
     return <>
       <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden',position: "relative", }}>
@@ -127,6 +145,11 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedFormula, setSelectedFormula] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
+  const [currentQueryAndResults, setCurrentQueryAndResults] = useState<{ query: string; results: SearchResult[] }[]>([]);
+  const [searchHistory, setSearchHistory] = useState<PDFSearchHistoryItem[]>(() => {
+    const stored = localStorage.getItem("pdfSearchHistory")
+    return stored ? JSON.parse(stored) : []
+  })
   useEffect(() => {
     fetchPDFMetadata(pdfUrl, (progressValue: number) => {
       setProgress(progressValue);
@@ -134,6 +157,13 @@ function App() {
       .then(metadata => setPdfDocumentMetadata(metadata))
       .catch(error => { console.error('Error fetching PDF metadata:', error), setPdfError(error.message || 'An error occurred while fetching PDF metadata') });
   }, [pdfUrl]);
+      /* ---------- Persist history ---------- */
+      useEffect(() => {
+        localStorage.setItem(
+          "pdfSearchHistory",
+          JSON.stringify(searchHistory)
+        )
+      }, [searchHistory])
   if (!pdfDocumentMetadata) {
     if (pdfError) {
       return (
@@ -151,14 +181,62 @@ function App() {
     );
   }
   const handleFormulaClick = (latex: string) => {
-    setSelectedFormula(latex); 
+    if (mathFieldRef.current) {
+      // Insert formula at current cursor position
+      const currentValue = mathFieldRef.current.getValue();
+      const separator = currentValue && !currentValue.endsWith(' ') ? ' ' : '';
+      mathFieldRef.current.setValue(currentValue + separator + latex);
+      mathFieldRef.current.focus(); // keep focus for immediate editing/searching
+    }
   };
+
+
+
+    /* ---------- Restore ---------- */
+    const restoreFromHistory = (item: PDFSearchHistoryItem) => {
+      setCurrentQueryAndResults(prev => [...prev, item])
+      setSearchHistory(prev => [item, ...prev])
+      }
+    
+    /* ---------- Clear history ---------- */
+    const clearHistory = () => {
+      setSearchHistory([])
+      localStorage.removeItem("pdfSearchHistory")
+    }
+    
+    /* ---------- Export ---------- */
+    const exportHistory = () => {
+      const blob = new Blob(
+        [JSON.stringify(searchHistory, null, 2)],
+        { type: "application/json" }
+      )
+
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "pdf-search-history.json"
+      a.click()
+      URL.revokeObjectURL(url)
+    }
+
+    
+      
+  
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
       <Header
   isHistoryOpen={isHistoryOpen}
   onToggleHistory={() => setIsHistoryOpen(prev => !prev)}
 />
+
+        {/* ================= HISTORY SIDEBAR (NEW) ================= */}
+        {/* <HistorySidebar
+          history={searchHistory}
+          isOpen={isHistoryOpen}
+          onClear={clearHistory}
+          onExport={exportHistory}
+          onSelect={restoreFromHistory}
+        /> */}
   
       {/* Toggle sidebar button */}
       <button
@@ -182,13 +260,21 @@ function App() {
 >
   {sidebarOpen ? "Hide Formulas" : "Show Formulas"}
 </button>
-
+        {/* ---------- Formula Sidebar ---------- */}
+        {pdfDocumentMetadata?.formulas && (
+          <FormulaSidebar
+            formulas={pdfDocumentMetadata.formulas}
+            isOpen={sidebarOpen}
+            selectedFormula={selectedFormula}
+            onFormulaClick={handleFormulaClick}
+          />
+        )}
   
-      <PDFViewer
-        pdfDocumentMetadata={pdfDocumentMetadata}
-        sidebarOpen={sidebarOpen} // pass the toggle state
-        historyOpen={isHistoryOpen}
-      />
+  <PDFContainer
+  pdfUrl={pdfUrl}
+  sidebarOpen={sidebarOpen}
+  historyOpen={isHistoryOpen}
+/>
     </div>
   );
 }

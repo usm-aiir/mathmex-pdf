@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, memo} from 'react';
 import { Document } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -15,8 +15,8 @@ import "mathlive"
 import { API } from '../App';
 import type { SearchResult } from './QueryAndResult';
 import QueryAndResult from './QueryAndResult';
-import FormulaSidebar from './FormulaSidebar';
-import HistorySidebar from "./HistorySidebar"
+import FormulaSidebar from './FormulaSidebar'; // Move out to
+import HistorySidebar from "./HistorySidebar"; // Move out
 
 // Import the CSS module
 import styles from './PDFViewer.module.css';
@@ -56,10 +56,12 @@ async function performSearch(query: string): Promise<SearchResult[]> {
   }
 }
 
-interface PDFViewerProps {
-    pdfDocumentMetadata?: PDFDocumentMetadata;
-    sidebarOpen: boolean;
-    historyOpen: boolean;
+export interface PDFViewerProps {
+  pdfDocumentMetadata: PDFDocumentMetadata
+  sidebarOpen: boolean
+  historyOpen: boolean
+  mathFieldRef: React.RefObject<MathfieldElement>
+  onFormulaClick: (latex: string) => void
 }
 
 interface MathfieldElement extends HTMLElement {
@@ -337,4 +339,4 @@ function PDFViewer({ pdfDocumentMetadata, sidebarOpen, historyOpen }: PDFViewerP
     )
     
 }  
-  export default PDFViewer;
+export default memo(PDFViewer)
