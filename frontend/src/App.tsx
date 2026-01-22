@@ -289,7 +289,7 @@ useEffect(() => {
 
     /* ---------- Restore ---------- */
     const restoreFromHistory = (item: PDFSearchHistoryItem) => {
-      setCurrentQueryAndResults(prev => [...prev, item])
+      setCurrentQueryAndResults(prev => [item, ...prev])
       setSearchHistory(prev => [item, ...prev])
       }
     
@@ -420,7 +420,6 @@ useEffect(() => {
               {currentQueryAndResults.length > 0 ? (
                 currentQueryAndResults
                   .slice()
-                  .reverse()
                   .map((item, index) => (
                     <QueryAndResult
                       key={index}
