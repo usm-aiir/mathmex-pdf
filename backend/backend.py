@@ -321,7 +321,7 @@ def simple_test():
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 
-mathmex_api = "http://localhost:5002/api"
+mathmex_api = "https://mathmex.com/api"
 
 
 @app.post("/pdf_reader/api/fusion-search")
