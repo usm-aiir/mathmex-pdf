@@ -1,4 +1,5 @@
-import { MathJax, MathJaxContext } from "better-react-mathjax"
+import { InlineMath } from "react-katex";
+import "katex/dist/katex.min.css";
 import { memo } from "react"
 
 interface CachedFormulaProps {
@@ -8,17 +9,7 @@ interface CachedFormulaProps {
 const CachedFormula = memo(
   ({ latex }: CachedFormulaProps) => {
     return (
-        <MathJaxContext
-        version={3}
-        config={{
-          tex: { inlineMath: [["\\(", "\\)"]] },
-          svg: { fontCache: "global" },
-        }}
-      >
-      <MathJax hideUntilTypeset="first">
-        {`\\(${latex}\\)`}
-        </MathJax>
-        </MathJaxContext>
+      <InlineMath math={latex} />
     )
   },
   (prev, next) => prev.latex === next.latex

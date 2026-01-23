@@ -49,7 +49,7 @@ function QueryAndResult({ query, results }: QueryAndResultProps) {
             {/* Results Section */}
             <div className={styles.resultsSection}>
                 <div className={styles.resultsLabel}>Results:</div>
-                {results.length > 0 ? (
+                {results && results.length > 0 ? (
                     // Slice results to ensure only up to 5 are displayed
                     results.slice(0, 5).map((result, index) => (
                         <SearchResultItem key={index} result={result} />

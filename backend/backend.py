@@ -29,7 +29,7 @@ app = FastAPI(debug=True, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     # Allow requests from localhost:3000 and localhost:5173 (common frontend development servers)
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:5174"],
     allow_credentials=True,  # Allow credentials (e.g., cookies, HTTP authentication)
     allow_methods=["*"],     # Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
     allow_headers=["*"],     # Allow all HTTP headers
@@ -321,49 +321,63 @@ def simple_test():
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 
-mathmex_api = "https://mathmex.com/api"
+mathmex_api = "http://localhost:5002/api"
 
-@app.post("/pdf_reader/api/search")
+
+@app.post("/pdf_reader/api/fusion-search")
 async def search(request: Request):
     """
-    Search endpoint that forwards the request to the MathMex API.
+    Search endpoint that forwards the request to the MathMex API fusion-search endpoint.
     """
-    logging.info(f"Search endpoint called with query: {request.query_params}")
-    forward_headers = {
-        key: value for key, value in request.headers.items()
-        if key.lower() not in ["host", "accept-encoding", "user-agent", "content-length"]
-    }
-    # Add Content-Type if it's not already there or to ensure it's correct
-    forward_headers["Content-Type"] = "application/json"
-    mathmex_response = await client.post(
-            f"{mathmex_api}/search",
-            json=await request.json(), # httpx handles JSON serialization here
-            headers=forward_headers,
-            # You might want to explicitly set a timeout for the external request
-            timeout=30.0 # Example timeout
+    try:
+        logging.info(f"Search endpoint called with query: {request.query_params}")
+        request_body = await request.json()
+        logging.info(f"Request body: {request_body}")
+        
+        forward_headers = {
+            key: value for key, value in request.headers.items()
+            if key.lower() not in ["host", "accept-encoding", "user-agent", "content-length"]
+        }
+        # Add Content-Type if it's not already there or to ensure it's correct
+        forward_headers["Content-Type"] = "application/json"
+        
+        logging.info(f"Forwarding to: {mathmex_api}/fusion-search")
+        mathmex_response = await client.post(
+                f"{mathmex_api}/fusion-search",
+                json=request_body,
+                headers=forward_headers,
+                timeout=30.0
+            )
+        
+        logging.info(f"MathMex response status: {mathmex_response.status_code}")
+
+        async def generate_response_chunks():
+                async for chunk in mathmex_response.aiter_bytes():
+                    yield chunk
+
+        # 6. Set headers from the MathMex response to your proxy response
+        # Exclude headers that should not be directly forwarded (e.g., transfer-encoding)
+        response_headers = {
+            key: value for key, value in mathmex_response.headers.items()
+            if key.lower() not in ["content-encoding", "transfer-encoding", "connection"]
+        }
+        # Ensure CORS headers are added by the middleware, not overwritten by proxied headers
+        response_headers.pop("access-control-allow-origin", None)
+        response_headers.pop("access-control-allow-methods", None)
+        response_headers.pop("access-control-allow-headers", None)
+
+        return StreamingResponse(
+            generate_response_chunks(),
+            status_code=mathmex_response.status_code,
+            headers=response_headers,
+            media_type=mathmex_response.headers.get("Content-Type")
         )
-
-    async def generate_response_chunks():
-            async for chunk in mathmex_response.aiter_bytes():
-                yield chunk
-
-    # 6. Set headers from the MathMex response to your proxy response
-    # Exclude headers that should not be directly forwarded (e.g., transfer-encoding)
-    response_headers = {
-        key: value for key, value in mathmex_response.headers.items()
-        if key.lower() not in ["content-encoding", "transfer-encoding", "connection"]
-    }
-    # Ensure CORS headers are added by the middleware, not overwritten by proxied headers
-    response_headers.pop("access-control-allow-origin", None)
-    response_headers.pop("access-control-allow-methods", None)
-    response_headers.pop("access-control-allow-headers", None)
-
-    return StreamingResponse(
-        generate_response_chunks(),
-        status_code=mathmex_response.status_code,
-        headers=response_headers,
-        media_type=mathmex_response.headers.get("Content-Type") # Preserve content-type
-    )
+    except Exception as e:
+        logging.error(f"Error in search endpoint: {str(e)}")
+        logging.error(f"Exception type: {type(e).__name__}")
+        import traceback
+        logging.error(f"Traceback: {traceback.format_exc()}")
+        return {"error": str(e), "results": [], "total": 0}
 
 # This context manager is used to manage the lifespan of the FastAPI application
 

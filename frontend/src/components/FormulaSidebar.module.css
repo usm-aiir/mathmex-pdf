@@ -1,12 +1,20 @@
 /* FormulaSidebar.module.css */
 
-  .sidebar {
+.wrapper {
   position: fixed;
   top: 0;
   right: 0;
   height: 100%;
-
   width: 340px;
+  transform: translateX(100%);
+  transition: transform 0.4s ease;
+  z-index: 999;
+}
+
+.sidebar {
+  position: relative;
+  width: 100%;
+  height: 100%;
   background-color: #f4f4f9;
   border-left: 1px solid #e5e7eb;
   box-shadow: -4px 0 12px rgba(0, 0, 0, 0.15);
@@ -23,13 +31,6 @@
   display: flex;
   flex-direction: column;
   padding: 1rem;
-
-  z-index: 999;
-
-  /* Start hidden */
-  transform: translateX(100%);
-  transition: transform 0.4s ease;
-  
 }
 
 .header {
@@ -45,18 +46,34 @@
   flex: 1;
 }
 
+.sidebarButton{
+  position: absolute;
+  top: 50%;
+  right: 100%;
+  margin-right: 15px;
+  transform: translateY(-50%) rotate(-90deg);
+  transform-origin: right center;
+  z-index: 1001;
+  padding: 0.5rem 1rem;
+  border-radius: 0.25rem;
+  background-color: #a200ff;
+  border: 2px solid #fff;
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 128px;
+  text-align: center;
+}
+
 .formulaButton {
   display: block;
-  width: 100%;
+  width: 95%;
   text-align: left;
-
   padding: 0.6rem;
   margin-bottom: 0.6rem;
-
   border-radius: 8px;
   border: 1px solid #d1d5db;
   background-color: #ffffff;
-
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   transition: all 0.15s ease;
@@ -76,10 +93,10 @@
   color: #6b7280;
 }
 
-.open {
-  transform: translateX(0);  /* slide in */
+.wrapperOpen {
+  transform: translateX(0) !important;  /* slide in */
 }
 
-.closed {
-  transform: translateX(100%);  /* slide out */
+.wrapperClosed {
+  transform: translateX(100%) !important;  /* slide out */
 }

@@ -1,40 +1,51 @@
 import styles from "./FormulaSidebar.module.css";
-import { MathJax, MathJaxContext } from "better-react-mathjax";
+import { InlineMath } from "react-katex";
+import "katex/dist/katex.min.css";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useRef, memo } from "react";
+import { useRef, memo, useState, useCallback } from "react";
 import CachedFormula from "./CachedFormula";
 
 interface FormulaSidebarProps {
   formulas?: string[];
-  isOpen: boolean;
   selectedFormula: string | null;
   onFormulaClick: (latex: string) => void;
 }
 
 function FormulaSidebar({
   formulas = [],
-  isOpen,
   selectedFormula,
   onFormulaClick,
 }: FormulaSidebarProps) {
+
   const parentRef = useRef<HTMLDivElement>(null);
 
   const rowVirtualizer = useVirtualizer({
     count: formulas.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 64, // row height
-    overscan: 6,
+    overscan: 12,
   });
 
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen(prev => !prev);
+  }, []);
+
   return (
-    <MathJaxContext
-    version={3}
-    config={{
-      tex: { inlineMath: [["\\(", "\\)"]] },
-      svg: { fontCache: "global" },
-    }}
-  >
-      <aside className={`${styles.sidebar} ${isOpen ? styles.open : styles.closed}`}>
+
+    <div className={`${styles.wrapper} ${sidebarOpen ? styles.wrapperOpen : styles.wrapperClosed}`}>
+      {/* ---------- FORMULA SIDEBAR TOGGLE ---------- */}
+      <button
+        onClick={toggleSidebar}
+        className={styles.sidebarButton}
+      >
+        {sidebarOpen ? "Hide Formulas" : "Show Formulas"}
+      </button>
+
+
+      <aside className={styles.sidebar}>
         <div className={styles.header}>Extracted Formulas</div>
 
         {formulas.length === 0 ? (
@@ -69,13 +80,11 @@ function FormulaSidebar({
                   >
                     <button
                       onClick={() => onFormulaClick(latex)}
-                      className={`${styles.formulaButton} ${
-                        isSelected ? styles.selected : ""
-                      }`}
+                      className={`${styles.formulaButton} ${isSelected ? styles.selected : ""
+                        }`}
                     >
-      <MathJax hideUntilTypeset="first">
-        {`\\(${latex}\\)`}
-        </MathJax></button>
+                      <InlineMath math={latex} />
+                      </button>
                   </div>
                 );
               })}
@@ -83,13 +92,11 @@ function FormulaSidebar({
           </div>
         )}
       </aside>
-      </MathJaxContext>
-
+    </div>
   );
 }
 
 export default memo(FormulaSidebar, (prev, next) =>
-  prev.isOpen === next.isOpen &&
   prev.selectedFormula === next.selectedFormula &&
   prev.formulas === next.formulas
 );

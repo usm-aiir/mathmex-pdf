@@ -14,7 +14,7 @@ import './App.css';
 import './styles/global.css';
 import Header from "./components/Header";
 
-export const API = import.meta.env.MODE === 'development' ? 'http://localhost:5010/pdf_reader/api' : 'https://mathmex.com/pdf_reader/api';
+export const API = import.meta.env.MODE === 'development' ? 'http://localhost:9095/pdf_reader/api' : 'http://localhost:9095/pdf_reader/api';
 
 /**
  * Fetches mathematical formula regions from a PDF file.
@@ -145,7 +145,6 @@ function App() {
   const [pdfDocumentMetadata, setPdfDocumentMetadata] = useState<PDFDocumentMetadata | null>(null);
   const [progress, setProgress] = useState(0);
   const [pdfError, setPdfError] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedFormula, setSelectedFormula] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
   const [searchHistory, setSearchHistory] = useState<PDFSearchHistoryItem[]>(() => {
@@ -241,6 +240,7 @@ useEffect(() => {
       console.log("Performing search for:", searchValue);
       performSearch(searchValue)
         .then(results => {
+          // Always add to history even if empty results
           addSearch(searchValue, results);
           if (mathFieldRef.current) {
             mathFieldRef.current.setValue('');
@@ -249,6 +249,7 @@ useEffect(() => {
         })
         .catch(error => {
           console.error("Search failed:", error);
+          addSearch(searchValue, []);
         });
     } else {
       console.warn("Search initiated, but the MathField is empty.");
@@ -257,7 +258,7 @@ useEffect(() => {
 
   async function performSearch(query: string): Promise<SearchResult[]> {
     try {
-      const result = await fetch(`${API}/search`, {
+      const result = await fetch(`${API}/fusion-search`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -266,17 +267,28 @@ useEffect(() => {
           query: query,
           sources: [],
           mediaTypes: [],
-          from: 0,
-          size: 5
+          top_k: 50
         })
       });
+      
+      if (!result.ok) {
+        console.error(`Search request failed with status ${result.status}`);
+        return [];
+      }
+      
       const json = await result.json();
-      console.log("Search results:", json.results);
+      console.log("Search results:", json);
+      
+      if (!json.results || !Array.isArray(json.results)) {
+        console.warn("Invalid search response format:", json);
+        return [];
+      }
+      
       return json.results as SearchResult[];
     }
     catch (error) {
       console.error("Error performing search:", error);
-      throw error; // Re-throw the error for further handling
+      return []; // Return empty array instead of throwing
     }
   }
 
@@ -334,34 +346,12 @@ useEffect(() => {
           onSelect={restoreFromHistory}
         />
     
-        {/* ---------- FORMULA SIDEBAR TOGGLE ---------- */}
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          style={{
-            position: "fixed",
-            top: "50%",
-            right: sidebarOpen ? "385px" : "15px",
-            transform: "translateY(-50%) rotate(-90deg)",
-            transformOrigin: "right center",
-            zIndex: 1000,
-            padding: "0.5rem 1rem",
-            borderRadius: "0.25rem",
-            backgroundColor: "#a200ff",
-            border: "2px solid #fff",
-            color: "#fff",
-            cursor: "pointer",
-            transition: "right 0.4s ease",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {sidebarOpen ? "Hide Formulas" : "Show Formulas"}
-        </button>
+
     
         {/* ---------- FORMULA SIDEBAR ---------- */}
         {pdfDocumentMetadata?.formulas && (
           <FormulaSidebar
             formulas={pdfDocumentMetadata.formulas}
-            isOpen={sidebarOpen}
             selectedFormula={selectedFormula}
             onFormulaClick={handleFormulaClick}
           />

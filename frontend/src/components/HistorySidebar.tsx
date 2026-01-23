@@ -1,5 +1,6 @@
 import styles from "./HistorySidebar.module.css"
-import { MathJax, MathJaxContext } from "better-react-mathjax";
+import { InlineMath } from "react-katex";
+import "katex/dist/katex.min.css";
 import { useState } from "react"
 
 interface PDFSearchHistoryItem {
@@ -28,13 +29,6 @@ export default function HistorySidebar({
   const [isHovered, setIsHovered] = useState(false);
 
   return (
-    <MathJaxContext
-    version={3}
-    config={{
-      tex: { inlineMath: [["\\(", "\\)"]] },
-      svg: { fontCache: "global" },
-    }}
-  >
 <aside
   className={`${styles.historySidebar} ${isOpen ? styles.open : ""}`}
 >
@@ -71,9 +65,7 @@ export default function HistorySidebar({
           onClick={() => onSelect(item)}
         >
           <div className={styles.historyFormula}>
-            <MathJax dynamic>
-              {`\\(${item.query}\\)`}
-            </MathJax>
+            <InlineMath math={item.query} />
           </div>
 
         </div>
@@ -81,7 +73,6 @@ export default function HistorySidebar({
     )}
   </div>
 </aside>
-</MathJaxContext>
 
   )
 }
