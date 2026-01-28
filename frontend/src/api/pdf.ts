@@ -51,7 +51,7 @@ export async function fetchPDFMetadata(
   for (const region of regions) {
     const match = latexResults.find(r => r.id === region.id)
     region.latex = match?.latex ?? ""
-    if (region.latex.trim()) formulas.push(region.latex)
+    if (region.latex &&region.latex.trim()) formulas.push(region.latex)
   }
 
   return { url: pdfUrl, regions, formulas }

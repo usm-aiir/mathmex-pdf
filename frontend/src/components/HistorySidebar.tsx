@@ -1,7 +1,6 @@
 import styles from "./HistorySidebar.module.css"
 import { InlineMath } from "react-katex";
 import "katex/dist/katex.min.css";
-import { useState } from "react"
 
 interface PDFSearchHistoryItem {
   query: string
@@ -26,7 +25,6 @@ export default function HistorySidebar({
   
   const MAX_VISIBLE_HISTORY = 20
   const visibleHistory = history.slice(0, MAX_VISIBLE_HISTORY)
-  const [isHovered, setIsHovered] = useState(false);
 
   return (
 <aside

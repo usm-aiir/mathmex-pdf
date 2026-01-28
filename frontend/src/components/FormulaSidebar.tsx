@@ -3,7 +3,6 @@ import { InlineMath } from "react-katex";
 import "katex/dist/katex.min.css";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRef, memo, useState, useCallback } from "react";
-import CachedFormula from "./CachedFormula";
 
 interface FormulaSidebarProps {
   formulas?: string[];

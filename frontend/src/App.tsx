@@ -145,7 +145,7 @@ function App() {
   const [pdfDocumentMetadata, setPdfDocumentMetadata] = useState<PDFDocumentMetadata | null>(null);
   const [progress, setProgress] = useState(0);
   const [pdfError, setPdfError] = useState<string | null>(null);
-  const [selectedFormula, setSelectedFormula] = useState<string | null>(null);
+  const [selectedFormula] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
   const [searchHistory, setSearchHistory] = useState<PDFSearchHistoryItem[]>(() => {
     const stored = localStorage.getItem("pdfSearchHistory")

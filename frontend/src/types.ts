@@ -12,6 +12,7 @@ interface FormulaRegion {
 
 interface PDFDocumentMetadata {
     url: string;
+    formulas: string[];
     regions: FormulaRegion[];
 }
 
