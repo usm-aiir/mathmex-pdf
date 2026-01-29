@@ -157,6 +157,8 @@ function App() {
   // Spoken math / accessibility states
   const [spokenMathLoaded, setSpokenMathLoaded] = useState(false);
   const [isDownloadingAnnotatedPdf, setIsDownloadingAnnotatedPdf] = useState(false);
+  const [isSearching, setIsSearching] = useState<boolean>(false); // State to track loading
+  const [searchError, setSearchError] = useState<string | null>(null); // State to track search errors
 
 const [currentQueryAndResults, setCurrentQueryAndResults] = useState<{
   query: string;
@@ -289,6 +291,8 @@ useEffect(() => {
     const searchValue = mathFieldRef.current?.getValue();
     if (searchValue) {
       console.log("Performing search for:", searchValue);
+      setIsSearching(true);
+      setSearchError(null); // Clear any previous errors
       performSearch(searchValue)
         .then(results => {
           // Always add to history even if empty results
@@ -300,7 +304,10 @@ useEffect(() => {
         })
         .catch(error => {
           console.error("Search failed:", error);
-          addSearch(searchValue, []);
+          setSearchError("Search failed. Please try again.");
+        })
+        .finally(() => {
+          setIsSearching(false);
         });
     } else {
       console.warn("Search initiated, but the MathField is empty.");
@@ -308,39 +315,33 @@ useEffect(() => {
   };
 
   async function performSearch(query: string): Promise<SearchResult[]> {
-    try {
-      const result = await fetch(`${API}/fusion-search`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          query: query,
-          sources: [],
-          mediaTypes: [],
-          top_k: 50
-        })
-      });
-      
-      if (!result.ok) {
-        console.error(`Search request failed with status ${result.status}`);
-        return [];
-      }
-      
-      const json = await result.json();
-      console.log("Search results:", json);
-      
-      if (!json.results || !Array.isArray(json.results)) {
-        console.warn("Invalid search response format:", json);
-        return [];
-      }
-      
-      return json.results as SearchResult[];
+    console.log(`Searching with query: ${query}`)
+    // Use pdf-reader proxy to avoid CORS issues
+    const result = await fetch(`${API}/fusion-search`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: query,
+        sources: [],
+        mediaTypes: [],
+        top_k: 50
+      })
+    });
+    
+    if (!result.ok) {
+      throw new Error(`Search request failed with status ${result.status}`);
     }
-    catch (error) {
-      console.error("Error performing search:", error);
-      return []; // Return empty array instead of throwing
+    
+    const json = await result.json();
+    console.log("Search results:", json);
+    
+    if (!json.results || !Array.isArray(json.results)) {
+      throw new Error("Invalid search response format");
     }
+    
+    return json.results as SearchResult[];
   }
 
     /* ---------- Add search ---------- */
@@ -353,8 +354,12 @@ useEffect(() => {
     /* ---------- Restore ---------- */
     const restoreFromHistory = (item: PDFSearchHistoryItem) => {
       setCurrentQueryAndResults(prev => [item, ...prev])
-      setSearchHistory(prev => [item, ...prev])
-      }
+      // Move clicked item to the top of history
+      setSearchHistory(prev => {
+        const filtered = prev.filter(historyItem => historyItem !== item)
+        return [item, ...filtered]
+      })
+    }
     
     /* ---------- Clear history ---------- */
     const clearHistory = () => {
@@ -395,6 +400,7 @@ useEffect(() => {
           onClear={clearHistory}
           onExport={exportHistory}
           onSelect={restoreFromHistory}
+          onClose={() => setIsHistoryOpen(false)}
         />
     
 
@@ -509,7 +515,20 @@ useEffect(() => {
                 </button>
               )}
     
-              {currentQueryAndResults.length > 0 ? (
+              {isSearching && (
+                <div className={PDFstyles.loadingContainer}>
+                  <div className={PDFstyles.loadingSpinner}></div>
+                  <p className={PDFstyles.loadingText}>Searching...</p>
+                </div>
+              )}
+
+              {searchError && (
+                <div className={PDFstyles.errorContainer}>
+                  <p className={PDFstyles.errorText}>{searchError}</p>
+                </div>
+              )}
+    
+              {!isSearching && currentQueryAndResults.length > 0 ? (
                 currentQueryAndResults
                   .slice()
                   .map((item, index) => (
@@ -519,11 +538,11 @@ useEffect(() => {
                       results={item.results}
                     />
                   ))
-              ) : (
+              ) : !isSearching && !searchError ? (
                 <p className={PDFstyles.noResultsMessage}>
                   Perform a search to see results here.
                 </p>
-              )}
+              ) : null}
             </div>
           </div>
         </div>

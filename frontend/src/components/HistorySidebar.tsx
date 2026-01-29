@@ -1,6 +1,7 @@
 import styles from "./HistorySidebar.module.css"
 import { InlineMath } from "react-katex";
 import "katex/dist/katex.min.css";
+import { useRef, useEffect } from "react";
 
 interface PDFSearchHistoryItem {
   query: string
@@ -13,6 +14,7 @@ interface HistorySidebarProps {
   onClear: () => void
   onSelect: (item: PDFSearchHistoryItem) => void
   onExport: () => void
+  onClose: () => void
 }
 
 export default function HistorySidebar({
@@ -21,13 +23,38 @@ export default function HistorySidebar({
   onClear,
   onSelect,
   onExport,
+  onClose,
 }: HistorySidebarProps) { 
   
+  const sidebarRef = useRef<HTMLDivElement>(null);
   const MAX_VISIBLE_HISTORY = 20
   const visibleHistory = history.slice(0, MAX_VISIBLE_HISTORY)
 
+  useEffect(() => {
+    if (!isOpen || !onClose) return;
+
+    function handlePointerDown(e: PointerEvent) {
+      const el = sidebarRef.current;
+      if (!el) return;
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      
+      // Check if click is on the history toggle button (to avoid close/reopen conflict)
+      const isToggleButton = target.closest('button[title*="Search History"]');
+      if (isToggleButton) return;
+      
+      if (!el.contains(target)) {
+        onClose();
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [isOpen, onClose]);
+
   return (
 <aside
+  ref={sidebarRef}
   className={`${styles.historySidebar} ${isOpen ? styles.open : ""}`}
 >
   {/* Header */}

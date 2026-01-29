@@ -19,7 +19,6 @@
     letter-spacing: 1.5px;
 }
 
-
 .headerContent {
     display: flex;
     align-items: center;
@@ -52,7 +51,8 @@
     margin: 0;
 }
 
-.historyToggleButton {
+.historyToggleButton, 
+.homeButton {
     width: 36px;
     height: 36px;
     border-radius: 50%;
@@ -70,20 +70,21 @@
     line-height: 1;
   
     transition: background 0.15s ease, transform 0.15s ease;
-  }
+}
   
-  .historyToggleButton:hover {
+.historyToggleButton:hover,
+.homeButton:hover {
     background: var(--button-color);
     color: rgb(255,255,255);
     transform: scale(1.05);
-  }
+}
   
-  .historyToggleButton:active {
+.historyToggleButton:active,
+.homeButton:active {
     transform: scale(0.95);
-  }
-  
+}
 
-  .buttonContainer {
+.buttonContainer {
     height: 100%;
 
     display: flex;
@@ -93,15 +94,15 @@
 
     position: absolute;
     top: 0;
-  }
+}
 
-  .buttonContainer.left {
+.buttonContainer.left {
     left: 5%;
-  }
+}
 
-  .buttonContainer.right {
+.buttonContainer.right {
     right: 5%;
-  }
+}
 
 /* Tablet and smaller desktop */
 @media (max-width: 768px) {
