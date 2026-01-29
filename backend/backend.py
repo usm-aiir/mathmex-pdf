@@ -319,18 +319,18 @@ def simple_test():
     return {"message": "Hello from simple test!"}
 
 from fastapi import Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 
-mathmex_api = "https://mathmex.com/api"
+mathmex_api = "http://127.0.0.1:5002/api"
 
 
 @app.post("/pdf_reader/api/fusion-search")
-async def search(request: Request):
+async def fusion_search_proxy(request: Request):
     """
     Search endpoint that forwards the request to the MathMex API fusion-search endpoint.
     """
     try:
-        logging.info(f"Search endpoint called with query: {request.query_params}")
+        logging.info(f"Fusion search endpoint called")
         request_body = await request.json()
         logging.info(f"Request body: {request_body}")
         
@@ -338,7 +338,6 @@ async def search(request: Request):
             key: value for key, value in request.headers.items()
             if key.lower() not in ["host", "accept-encoding", "user-agent", "content-length"]
         }
-        # Add Content-Type if it's not already there or to ensure it's correct
         forward_headers["Content-Type"] = "application/json"
         
         logging.info(f"Forwarding to: {mathmex_api}/fusion-search")
@@ -350,18 +349,26 @@ async def search(request: Request):
             )
         
         logging.info(f"MathMex response status: {mathmex_response.status_code}")
+        
+        # If MathMex returns an error status, parse and return the JSON error response
+        if mathmex_response.status_code >= 400:
+            error_data = mathmex_response.json()
+            logging.error(f"MathMex returned error: {error_data}")
+            return JSONResponse(
+                content={"error": error_data.get("error", "Unknown error"), "results": [], "total": 0},
+                status_code=mathmex_response.status_code
+            )
 
+        # For successful responses, stream the content back
         async def generate_response_chunks():
                 async for chunk in mathmex_response.aiter_bytes():
                     yield chunk
 
-        # 6. Set headers from the MathMex response to your proxy response
-        # Exclude headers that should not be directly forwarded (e.g., transfer-encoding)
         response_headers = {
             key: value for key, value in mathmex_response.headers.items()
             if key.lower() not in ["content-encoding", "transfer-encoding", "connection"]
         }
-        # Ensure CORS headers are added by the middleware, not overwritten by proxied headers
+        # Remove CORS headers - let our middleware handle them
         response_headers.pop("access-control-allow-origin", None)
         response_headers.pop("access-control-allow-methods", None)
         response_headers.pop("access-control-allow-headers", None)
@@ -373,11 +380,14 @@ async def search(request: Request):
             media_type=mathmex_response.headers.get("Content-Type")
         )
     except Exception as e:
-        logging.error(f"Error in search endpoint: {str(e)}")
+        logging.error(f"Error in fusion search endpoint: {str(e)}")
         logging.error(f"Exception type: {type(e).__name__}")
         import traceback
         logging.error(f"Traceback: {traceback.format_exc()}")
-        return {"error": str(e), "results": [], "total": 0}
+        return JSONResponse(
+            content={"error": str(e), "results": [], "total": 0},
+            status_code=500
+        )
 
 # This context manager is used to manage the lifespan of the FastAPI application
 
