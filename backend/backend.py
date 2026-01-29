@@ -1,4 +1,5 @@
 import logging
+import io
 
 from fastapi.concurrency import asynccontextmanager
 
@@ -16,6 +17,22 @@ from fastapi.middleware.cors import CORSMiddleware
 import httpx
 # Create an asynchronous HTTP client using httpx
 client = httpx.AsyncClient()
+
+# LaTeX to spoken math conversion
+import re
+from pylatexenc.latex2text import LatexNodes2Text
+from utils import GREEK_TO_SPOKEN, SYMBOLS_TO_SPOKEN, SUPERSCRIPTS, SUBSCRIPTS
+
+_latex2text = LatexNodes2Text()
+
+# Import PyMuPDF for PDF annotation
+try:
+    import fitz  # PyMuPDF
+    PYMUPDF_AVAILABLE = True
+    logging.info("PyMuPDF library loaded successfully for PDF annotation.")
+except ImportError:
+    PYMUPDF_AVAILABLE = False
+    logging.warning("PyMuPDF library not available. PDF annotation feature will be disabled.")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -378,6 +395,219 @@ async def search(request: Request):
         import traceback
         logging.error(f"Traceback: {traceback.format_exc()}")
         return {"error": str(e), "results": [], "total": 0}
+
+# ==================== SPOKEN MATH CONVERSION ====================
+
+def convert_latex_to_spoken(latex: str) -> str:
+    """Convert LaTeX to spoken natural language using pylatexenc."""
+    if not latex or not latex.strip():
+        return ""
+    
+    try:
+        # Strip math delimiters
+        clean = re.sub(r'^\$+|\$+$', '', latex.strip())
+        clean = re.sub(r'^\\[\[\(]|\\[\]\)]$', '', clean)
+        
+        # Convert LaTeX to unicode text
+        text = _latex2text.latex_to_text(clean)
+        
+        # Replace unicode symbols with spoken words
+        for symbol, spoken in {**GREEK_TO_SPOKEN, **SYMBOLS_TO_SPOKEN}.items():
+            text = text.replace(symbol, f' {spoken} ')
+        
+        # Convert unicode super/subscripts to ASCII
+        for sup, char in SUPERSCRIPTS.items():
+            text = text.replace(sup, f'^{char}')
+        for sub, char in SUBSCRIPTS.items():
+            text = text.replace(sub, f'_{char}')
+        
+        # Handle powers: x^2 -> x squared, x^n -> x to the power of n
+        def speak_power(m):
+            base, exp = m.group(1), m.group(2).strip('{}')
+            if exp == '2': return f'{base} squared'
+            if exp == '3': return f'{base} cubed'
+            if exp == 'T': return f'{base} transpose'
+            if exp == '-1': return f'{base} inverse'
+            return f'{base} to the power of {exp}'
+        text = re.sub(r'(\w)\^(\{[^}]+\}|[0-9a-zA-Z\-]+)', speak_power, text)
+        
+        # Handle subscripts: x_i -> x sub i
+        text = re.sub(r'(\w)_(\{[^}]+\}|[0-9a-zA-Z]+)',
+                      lambda m: f"{m.group(1)} sub {m.group(2).strip('{}')}", text)
+        
+        # Basic operators
+        text = text.replace('+', ' plus ').replace('=', ' equals ')
+        text = text.replace('<', ' less than ').replace('>', ' greater than ')
+        text = re.sub(r'(?<=[a-zA-Z\s])-(?=[a-zA-Z\s])', ' minus ', text)
+        
+        # Fractions and Big-O
+        text = re.sub(r'(\w+)/(\w+)', r'\1 over \2', text)
+        text = re.sub(r'O\s*\(([^)]+)\)', r'O of \1', text)
+        
+        # Parentheses
+        text = re.sub(r'\(', ' of ', text)
+        text = re.sub(r'\)', ' ', text)
+        
+        # Clean up and capitalize
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text[0].upper() + text[1:] if text else f"Formula: {latex}"
+    
+    except Exception as e:
+        logging.error(f"Error converting LaTeX: {e}")
+        return f"Formula: {latex}"
+
+@lru_cache(maxsize=2048)
+def get_spoken_math_cached(latex: str) -> str:
+    """Cached version of spoken math conversion."""
+    return convert_latex_to_spoken(latex)
+
+@app.get("/pdf_reader/api/get_spoken_math/{region_id:int}/{pdf_url:path}")
+async def get_spoken_math_for_region(region_id: int, pdf_url: str):
+    """
+    Endpoint to get the spoken math representation of a specific math region in a PDF.
+    First gets the LaTeX, then converts it to spoken math.
+    """
+    logging.info(f"Getting spoken math for region {region_id} in PDF URL: {pdf_url}")
+    try:
+        # First get the LaTeX for this region
+        latex_data = get_pdf_latex(pdf_url, region_id)
+        if "latex" not in latex_data or not latex_data["latex"]:
+            return {"error": "No LaTeX found for this region", "spoken_math": ""}
+        
+        latex = latex_data["latex"]
+        spoken_math = get_spoken_math_cached(latex)
+        
+        return {
+            "latex": latex,
+            "spoken_math": spoken_math
+        }
+    except Exception as e:
+        logging.error(f"Error getting spoken math: {e}")
+        return {"error": str(e), "spoken_math": ""}
+
+@app.get("/pdf_reader/api/get_all_spoken_math/{pdf_url:path}")
+async def get_all_spoken_math(pdf_url: str):
+    """
+    Endpoint to get spoken math for all formula regions in a PDF.
+    Returns a list of {id, latex, spoken_math} objects.
+    """
+    logging.info(f"Getting all spoken math for PDF URL: {pdf_url}")
+    try:
+        regions = get_pdf_regions(pdf_url)
+        results = []
+        
+        for region in regions:
+            region_id = region["id"]
+            try:
+                latex_data = get_pdf_latex(pdf_url, region_id)
+                latex = latex_data.get("latex", "")
+                spoken_math = get_spoken_math_cached(latex) if latex else ""
+                results.append({
+                    "id": region_id,
+                    "latex": latex,
+                    "spoken_math": spoken_math
+                })
+            except Exception as e:
+                logging.error(f"Error processing region {region_id}: {e}")
+                results.append({
+                    "id": region_id,
+                    "latex": "",
+                    "spoken_math": ""
+                })
+        
+        return {"spoken_math_data": results}
+    except Exception as e:
+        logging.error(f"Error getting all spoken math: {e}")
+        return {"error": str(e), "spoken_math_data": []}
+
+# ==================== ANNOTATED PDF GENERATION ====================
+
+@app.get("/pdf_reader/api/generate_annotated_pdf/{pdf_url:path}")
+async def generate_annotated_pdf(pdf_url: str):
+    """
+    Generate an annotated PDF with spoken math tooltips for each formula.
+    The annotations appear as popup comments when hovering over formulas.
+    """
+    if not PYMUPDF_AVAILABLE:
+        return {"error": "PDF annotation feature is not available. PyMuPDF not installed."}
+    
+    logging.info(f"Generating annotated PDF for URL: {pdf_url}")
+    try:
+        # Download the original PDF
+        pdf_bytes = download_pdf(pdf_url)
+        
+        # Get all regions and their spoken math
+        regions = get_pdf_regions(pdf_url)
+        
+        # Open the PDF with PyMuPDF
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        
+        for region in regions:
+            region_id = region["id"]
+            page_num = region["pagenum"] - 1  # PyMuPDF uses 0-indexed pages
+            bbox = region["bbox"]
+            
+            # Get the page
+            if page_num >= len(doc):
+                continue
+            page = doc[page_num]
+            
+            # Get LaTeX and spoken math for this region
+            try:
+                latex_data = get_pdf_latex(pdf_url, region_id)
+                latex = latex_data.get("latex", "")
+                spoken_math = get_spoken_math_cached(latex) if latex else ""
+            except Exception as e:
+                logging.error(f"Error getting spoken math for region {region_id}: {e}")
+                continue
+            
+            if not spoken_math:
+                continue
+            
+            # Convert normalized bbox to page coordinates
+            page_rect = page.rect
+            x1 = bbox[0] * page_rect.width
+            y1 = bbox[1] * page_rect.height
+            x2 = bbox[2] * page_rect.width
+            y2 = bbox[3] * page_rect.height
+            
+            # Create annotation rectangle
+            annot_rect = fitz.Rect(x1, y1, x2, y2)
+            
+            # Create a popup annotation with the spoken math
+            # Using a Text annotation (appears as a note icon that shows tooltip on hover)
+            annot = page.add_text_annot(
+                fitz.Point(x2, y1),  # Position at top-right of formula
+                f"Spoken Math:\n{spoken_math}\n\nLaTeX:\n{latex}",
+                icon="Note"
+            )
+            annot.set_info(title="Spoken Math", content=spoken_math)
+            annot.update()
+            
+            # Also add a highlight annotation over the formula area
+            highlight = page.add_highlight_annot(annot_rect)
+            highlight.set_info(title="Formula", content=f"Spoken: {spoken_math}")
+            highlight.set_colors(stroke=(1, 1, 0.6))  # Light yellow
+            highlight.set_opacity(0.3)
+            highlight.update()
+        
+        # Save to bytes
+        output_buffer = io.BytesIO()
+        doc.save(output_buffer)
+        doc.close()
+        
+        # Return the annotated PDF
+        output_buffer.seek(0)
+        return Response(
+            content=output_buffer.getvalue(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=annotated_pdf.pdf"
+            }
+        )
+    except Exception as e:
+        logging.error(f"Error generating annotated PDF: {e}")
+        return {"error": str(e)}
 
 # This context manager is used to manage the lifespan of the FastAPI application
 

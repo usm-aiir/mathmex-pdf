@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import type { FormulaRegion, PDFDocumentMetadata } from "./types";
+import type { FormulaRegion, PDFDocumentMetadata, SpokenMathData } from "./types";
 import PDFOpener from "./components/PDFOpener";
 import PDFLoadingPage from "./components/PDFLoadingPage";
 import PDFErrorPage from "./components/PDFErrorPage";
@@ -9,6 +9,7 @@ import HistorySidebar from "./components/HistorySidebar";
 import PDFContainer from "./components/PDFContainer";
 import QueryAndResult from "./components/QueryAndResult";
 import PDFstyles from './components/PDFViewer.module.css';
+import { fetchAllSpokenMath, downloadAnnotatedPdf, triggerAnnotatedPdfDownload } from "./api/pdf";
 
 import './App.css';
 import './styles/global.css';
@@ -152,6 +153,10 @@ function App() {
     return stored ? JSON.parse(stored) : []
   })
   const [isMathMode, setIsMathMode] = useState<boolean>(false); // State to track mode
+  
+  // Spoken math / accessibility states
+  const [spokenMathLoaded, setSpokenMathLoaded] = useState(false);
+  const [isDownloadingAnnotatedPdf, setIsDownloadingAnnotatedPdf] = useState(false);
 
 const [currentQueryAndResults, setCurrentQueryAndResults] = useState<{
   query: string;
@@ -202,6 +207,52 @@ useEffect(() => {
       .then(metadata => setPdfDocumentMetadata(metadata))
       .catch(error => { console.error('Error fetching PDF metadata:', error), setPdfError(error.message || 'An error occurred while fetching PDF metadata') });
   }, [pdfUrl]);
+
+  // Fetch spoken math data after metadata is loaded (for accessibility)
+  useEffect(() => {
+    if (!pdfDocumentMetadata || spokenMathLoaded) return;
+    
+    fetchAllSpokenMath(pdfUrl)
+      .then((spokenMathData: SpokenMathData[]) => {
+        if (spokenMathData.length > 0) {
+          // Update regions with spoken math
+          setPdfDocumentMetadata(prev => {
+            if (!prev) return prev;
+            const updatedRegions = prev.regions.map(region => {
+              const match = spokenMathData.find(s => s.id === region.id);
+              return match ? { ...region, spokenMath: match.spoken_math } : region;
+            });
+            return { ...prev, regions: updatedRegions };
+          });
+        }
+        setSpokenMathLoaded(true);
+      })
+      .catch(error => {
+        console.error('Error fetching spoken math:', error);
+        setSpokenMathLoaded(true); // Mark as loaded even on error to prevent retries
+      });
+  }, [pdfDocumentMetadata, pdfUrl, spokenMathLoaded]);
+
+  // Handler to download annotated PDF with spoken math tooltips
+  const handleDownloadAnnotatedPdf = async () => {
+    setIsDownloadingAnnotatedPdf(true);
+    try {
+      const blob = await downloadAnnotatedPdf(pdfUrl);
+      if (blob) {
+        // Extract filename from URL or use default
+        const urlParts = pdfUrl.split('/');
+        const originalFilename = urlParts[urlParts.length - 1] || 'document';
+        const annotatedFilename = originalFilename.replace('.pdf', '_annotated.pdf');
+        triggerAnnotatedPdfDownload(blob, annotatedFilename);
+      } else {
+        console.error('Failed to download annotated PDF');
+      }
+    } catch (error) {
+      console.error('Error downloading annotated PDF:', error);
+    } finally {
+      setIsDownloadingAnnotatedPdf(false);
+    }
+  };
       /* ---------- Persist history ---------- */
       useEffect(() => {
         localStorage.setItem(
@@ -361,12 +412,63 @@ useEffect(() => {
         <div style={{ display: "flex", flexGrow: 1, width: "100%", overflowY: "auto" }}>
           
           {/* Left: PDF Viewer (50%) */}
-          <div style={{ width: "50%", overflowY: "auto" }} >
-            <PDFContainer 
-            pdfDocumentMetadata={pdfDocumentMetadata}
-            onFormulaClick={handleFormulaClick}
-            mathFieldRef={mathFieldRef}
-             />
+          <div style={{ width: "50%", overflowY: "auto", display: "flex", flexDirection: "column" }} >
+            <div style={{ flexGrow: 1, overflowY: "auto" }}>
+              <PDFContainer 
+                pdfDocumentMetadata={pdfDocumentMetadata}
+                onFormulaClick={handleFormulaClick}
+                mathFieldRef={mathFieldRef}
+              />
+            </div>
+            
+            {/* Accessibility Controls Bar */}
+            <div style={{ 
+              padding: "10px 16px", 
+              borderTop: "1px solid #eee", 
+              display: "flex", 
+              alignItems: "center", 
+              gap: "12px",
+              backgroundColor: "#f8f9fa"
+            }}>
+              <button
+                onClick={handleDownloadAnnotatedPdf}
+                disabled={isDownloadingAnnotatedPdf || !spokenMathLoaded}
+                style={{
+                  padding: "8px 16px",
+                  backgroundColor: isDownloadingAnnotatedPdf ? "#ccc" : "#2563eb",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: isDownloadingAnnotatedPdf ? "not-allowed" : "pointer",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  transition: "background-color 0.2s"
+                }}
+                title="Download a PDF with spoken math annotations that appear when hovering over formulas"
+              >
+                {isDownloadingAnnotatedPdf ? (
+                  <>
+                    <span style={{ 
+                      display: "inline-block", 
+                      width: "14px", 
+                      height: "14px", 
+                      border: "2px solid #fff",
+                      borderTopColor: "transparent",
+                      borderRadius: "50%",
+                      animation: "spin 1s linear infinite"
+                    }} />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    Download Annotated PDF
+                  </>
+                )}
+              </button>
+            </div>
           </div>
     
           {/* Right: Query + Search Results Sidebar (50%) */}

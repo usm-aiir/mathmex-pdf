@@ -3,10 +3,81 @@
     /* position: absolute; */
     z-index: 1000;
     cursor: pointer;
+    position: relative;
     &:hover {
         background-color: rgba(255, 0, 0, 0.3);
     }
 }
 .mathHighlight_active {
     background-color: rgba(255, 0, 0, 0.3);
+}
+
+/* Tooltip container */
+.tooltipWrapper {
+    position: relative;
+    display: inline-block;
+}
+
+/* Tooltip content */
+.tooltip {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #1a1a2e;
+    color: #fff;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: normal;
+    max-width: 350px;
+    min-width: 200px;
+    z-index: 2000;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+    pointer-events: none;
+    margin-bottom: 8px;
+}
+
+/* Tooltip arrow */
+.tooltip::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 8px;
+    border-style: solid;
+    border-color: #1a1a2e transparent transparent transparent;
+}
+
+/* Show tooltip on hover */
+.tooltipWrapper:hover .tooltip {
+    visibility: visible;
+    opacity: 1;
+}
+
+/* Tooltip header styling */
+.tooltipHeader {
+    font-weight: 600;
+    color: #a8d8ea;
+    margin-bottom: 6px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Spoken math text */
+.spokenMathText {
+    font-style: italic;
+    color: #f0f0f0;
+}
+
+/* Loading state */
+.tooltipLoading {
+    color: #888;
+    font-style: italic;
 }
