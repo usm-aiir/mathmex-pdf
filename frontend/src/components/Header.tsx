@@ -1,6 +1,6 @@
 import styles from "./Header.module.css"
 import type { FC } from "react"
-import { History } from "lucide-react"
+import { History, Home } from "lucide-react"
 
 interface HeaderProps {
   onToggleHistory?: () => void
@@ -9,15 +9,45 @@ interface HeaderProps {
 
 const Header: FC<HeaderProps> = ({
   onToggleHistory,
-  isHistoryOpen = false, // default value
+  isHistoryOpen = false,
 }) => {
   const showHistoryToggle =
     typeof onToggleHistory === "function" &&
     typeof isHistoryOpen === "boolean"
 
+  const goHome = () => {
+    window.location.href = "/pdf_reader/";
+  };
+
   return (
     <header className={styles.header}>
 
+      {/* LEFT: Home Button */}
+      {showHistoryToggle && (
+      <div className={`${styles.buttonContainer} ${styles.left}`}>
+        <button
+          className={styles.homeButton}
+          onClick={goHome}
+          title="Go Home"
+        >
+          <Home size={28} />
+        </button>
+      </div>
+      )}
+
+      {/* CENTER: Title */}
+      <div className="container">
+        <div className={styles.headerContent}>
+          <div className={styles.titleContainer}>
+            <h1 className={styles.title}>PDF Reader</h1>
+            <p className={styles.tagline}>
+              Powered by <a href="https://mathmex.com">MathMex</a>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* RIGHT: History Toggle */}
       {showHistoryToggle && (
         <div className={`${styles.buttonContainer} ${styles.right}`}>
           <button
@@ -29,17 +59,6 @@ const Header: FC<HeaderProps> = ({
           </button>
         </div>
       )}
-
-      <div className="container">
-        <div className={styles.headerContent}>
-          <div className={styles.titleContainer}>
-            <h1 className={styles.title}>PDF Reader</h1>
-            <p className={styles.tagline}>
-              Powered by <a href="https://mathmex.com">MathMex</a>
-            </p>
-          </div>
-        </div>
-      </div>
 
     </header>
   )

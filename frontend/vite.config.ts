@@ -10,5 +10,14 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['pdfjs-dist']
-  }
+  },
+  server: {
+    proxy: {
+      '/pdf_reader/api': {
+        target: 'http://localhost:9095',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
 })

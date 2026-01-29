@@ -58,19 +58,6 @@ class PDFMathFormula(NamedTuple):
 # Import lru_cache for memoization (caching function results)
 from functools import lru_cache
 
-@lru_cache(maxsize=32)
-def download_pdf(pdf_url: str) -> bytes:
-    """
-    Download the PDF file from the given URL and return its content as bytes.
-    The result is cached to avoid re-downloading the same PDF.
-    """
-    logging.info(f"Downloading PDF from URL: {pdf_url}")
-    response = requests.get(pdf_url)
-    # Raise an error if the PDF download fails
-    if response.status_code != 200:
-        raise ValueError("Failed to download PDF from the provided URL.")
-    return response.content
-
 # Import Image from PIL (Pillow) for image manipulation
 from PIL import Image
 
@@ -116,12 +103,9 @@ def get_pdf_page_image(pdf_url: str, page_num: int) -> Image.Image:
 def get_cached_page(pdf_url: str, page_num: int):
     return get_pdf_page_image(pdf_url, page_num)
 
-# Import LatexOCR for converting images of math formulas to LaTeX, and MathFormulaDetector for detecting formulas
-from pix2tex.cli import LatexOCR
+# Import MathFormulaDetector for detecting formulas
 from pix2text import MathFormulaDetector
 
-# Initialize the LatexOCR model
-latex_model = LatexOCR()
 # Initialize the MathFormulaDetector model
 math_detector = MathFormulaDetector()
 # Set a minimum score for detected math formulas to be considered valid
@@ -166,6 +150,7 @@ async def get_pdf(pdf_url: str):
     """
     logging.info(f"Received request to get PDF from URL: {pdf_url}")
     try:
+        pdf_url = resolve_pdf_path(pdf_url)
         # Download the PDF bytes
         pdf_bytes = download_pdf(pdf_url)
         # Return the PDF bytes with the appropriate media type
@@ -186,11 +171,12 @@ def get_pdf_page_regions(pdf_url: str, page_num: int) -> list[PDFMathFormula]:
     Returns a list of PDFMathFormula for that page.
     """
     logging.info(f"Processing PDF {pdf_url}, page {page_num}")
+    pdf_url = resolve_pdf_path(pdf_url)
     
     # Convert just this page to an image
     from pdf2image import convert_from_bytes
     pdf_bytes = download_pdf(pdf_url)
-    image = convert_from_bytes(pdf_bytes, dpi=150, first_page=page_num, last_page=page_num)[0]
+    image = convert_from_bytes(pdf_bytes, dpi=300, first_page=page_num, last_page=page_num)[0]
 
     # Detect formulas in this single page
     formulas = []
@@ -215,7 +201,7 @@ def get_pdf_regions(pdf_url: str) -> list[dict]:
     This avoids loading the entire PDF into memory at once.
     """
     logging.info(f"Getting PDF regions for URL: {pdf_url}")
-
+    pdf_url = resolve_pdf_path(pdf_url)
     # First, figure out how many pages we have
     pdf_bytes = download_pdf(pdf_url)
     from pdf2image import pdfinfo_from_bytes
@@ -244,6 +230,7 @@ async def predict_math_regions(pdf_url: str):
     """
     logging.info(f"Received request to predict math regions for PDF URL: {pdf_url}")
     try:
+        pdf_url = resolve_pdf_path(pdf_url)
         # Get the predicted math regions
         regions = get_pdf_regions(pdf_url)
         if not regions:
@@ -255,6 +242,11 @@ async def predict_math_regions(pdf_url: str):
     except Exception as e:
         logging.error(f"Error processing PDF: {e}")
         return {"error": str(e)}
+
+from pix2text import Pix2Text
+# Initialize the full pipeline (Detector + Recognizer)
+# This replaces both 'latex_model' and 'math_detector'
+p2t = Pix2Text.from_config()
 
 @lru_cache(maxsize=2048)
 def get_pdf_latex(pdf_url: str, latex_id: int) -> dict:
@@ -288,9 +280,16 @@ def get_pdf_latex(pdf_url: str, latex_id: int) -> dict:
     # Crop the image to isolate the math formula
     image = page_image.crop((x1, y1, x2, y2))
     logging.info(f"Extracted image for region {latex_id} with size: {image.size}")
-    
-    # Convert the cropped image of the math formula to LaTeX string using LatexOCR
-    latex = latex_model(image)
+
+
+    try:
+        # resized_shape uses a larger default (768) which preserves details
+        latex = p2t.recognize_formula(image) 
+    except Exception as e:
+        logging.error(f"P2T Recognition failed: {e}")
+        latex = ""
+
+
     return {"latex": latex}
 
 @app.get("/pdf_reader/api/get_latex_for_region/{region_id:int}/{pdf_url:path}")
@@ -300,6 +299,7 @@ async def get_latex_for_region(region_id: int, pdf_url: str):
     """
     logging.info(f"Received request to get LaTeX for region {region_id} in PDF URL: {pdf_url}")
     try:
+        pdf_url = resolve_pdf_path(pdf_url)
         # Get the LaTeX data for the specified region
         latex_data = get_pdf_latex(pdf_url, region_id)
         if "latex" not in latex_data:
@@ -321,8 +321,7 @@ def simple_test():
 from fastapi import Request
 from fastapi.responses import StreamingResponse, JSONResponse
 
-mathmex_api = "http://127.0.0.1:5002/api"
-
+mathmex_api = "https://mathmex.com/api"
 
 @app.post("/pdf_reader/api/fusion-search")
 async def fusion_search_proxy(request: Request):
@@ -388,6 +387,87 @@ async def fusion_search_proxy(request: Request):
             content={"error": str(e), "results": [], "total": 0},
             status_code=500
         )
+    
+
+
+import os 
+from pathlib import Path
+import uuid
+import shutil
+from fastapi import UploadFile, File
+import time
+
+UPLOAD_DIR = Path("/tmp/uploaded_pdfs")
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+# Helper to check if a string is a URL
+def is_url(string: str) -> bool:
+    return string.startswith("http://") or string.startswith("https://")
+
+def resolve_pdf_path(pdf_url: str) -> str:
+    """
+    Resolves a PDF identifier to a concrete location.
+    - If it's 'local://<id>', it returns the absolute file system path.
+    - If it's a web URL, it returns it as is.
+    """
+    if pdf_url.startswith("local://"):
+        # Strip the prefix to get the UUID
+        pdf_id = pdf_url.replace("local://", "")
+        # Return the actual file path on the server
+        return str(UPLOAD_DIR / f"{pdf_id}.pdf")
+    return pdf_url
+
+@lru_cache(maxsize=32)
+def download_pdf(pdf_url: str) -> bytes:
+    """
+    Acquire PDF bytes. 
+    - If path is a local file, read from disk.
+    - If path is a URL, download it.
+    """
+    
+    if os.path.exists(pdf_url) and not is_url(pdf_url):
+        logging.info(f"Reading local PDF from disk: {pdf_url}")
+        with open(pdf_url, "rb") as f:
+            return f.read()
+    
+    logging.info(f"Downloading PDF from URL: {pdf_url}")
+    response = requests.get(pdf_url)
+    if response.status_code != 200:
+        raise ValueError("Failed to download PDF from the provided URL.")
+    return response.content
+
+@app.post("/pdf_reader/api/upload_pdf")
+async def upload_pdf(file: UploadFile = File(...)):
+    
+    cleanup_old_files(UPLOAD_DIR, max_age_seconds=3600) # 1 hour retention
+
+    # Generate a unique ID (UUID)
+    pdf_id = str(uuid.uuid4())
+    save_path = UPLOAD_DIR / f"{pdf_id}.pdf"
+
+    # Stream the uploaded file to disk
+    with open(save_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    logging.info(f"File uploaded and saved to {save_path}")
+
+    # Return a custom internal URI instead of a localhost URL
+    return {"pdf_url": f"local://{pdf_id}"}
+
+
+def cleanup_old_files(folder: Path, max_age_seconds: int = 3600):
+    """
+    Deletes files in the folder that are older than max_age_seconds (default 1 hour).
+    """
+    current_time = time.time()
+    for file_path in folder.glob("*.pdf"):
+        try:
+            # Check file modification time
+            if current_time - file_path.stat().st_mtime > max_age_seconds:
+                file_path.unlink()  # Delete the file
+                logging.info(f"Deleted old file: {file_path}")
+        except Exception as e:
+            logging.error(f"Error deleting file {file_path}: {e}")
 
 # This context manager is used to manage the lifespan of the FastAPI application
 
