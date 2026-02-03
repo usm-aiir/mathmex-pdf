@@ -8,6 +8,7 @@ interface FormulaRegion {
         y2: number;
     };
     latex?: string; // Optional field for storing LaTeX content
+    spokenMath?: string; // Optional field for storing spoken math (accessibility)
 }
 
 interface PDFDocumentMetadata {
@@ -16,4 +17,10 @@ interface PDFDocumentMetadata {
     regions: FormulaRegion[];
 }
 
-export type { FormulaRegion, PDFDocumentMetadata }
+interface SpokenMathData {
+    id: number;
+    latex: string;
+    spoken_math: string;
+}
+
+export type { FormulaRegion, PDFDocumentMetadata, SpokenMathData }
