@@ -1,26 +1,22 @@
 import { memo } from "react"
 import type { PDFDocumentMetadata } from "../types"
+import type { MathfieldElement } from 'mathlive'
 import PDFViewer from "./PDFViewer"
-
-
 
 interface PDFContainerProps {
   pdfDocumentMetadata: PDFDocumentMetadata;
-  onFormulaClick: (latex: string) => void;
-  mathFieldRef: React.RefObject<MathfieldElement>
+  mathFieldRef: React.RefObject<MathfieldElement>;
+  searchBarContent: string;
+  scrollToPage?: number;
+  onSearchBarContentChange: (content: string) => void;
 }
-interface MathfieldElement extends HTMLElement {
-    executeCommand: (command: string, ...args: any[]) => void;
-    focus: () => void;
-    setValue: (value: string) => void;
-    getValue: () => string;
-    latex: string;
-  }
 
 function PDFContainer({
   pdfDocumentMetadata,
-  onFormulaClick,
   mathFieldRef,
+  searchBarContent,
+  scrollToPage,
+  onSearchBarContentChange,
 }: PDFContainerProps) {
 
 
@@ -28,7 +24,9 @@ function PDFContainer({
 <PDFViewer
   pdfDocumentMetadata={pdfDocumentMetadata}
   mathFieldRef={mathFieldRef}
-  onFormulaClick={onFormulaClick}
+  searchBarContent={searchBarContent}
+  scrollToPage={scrollToPage}
+  onSearchBarContentChange={onSearchBarContentChange}
 />
   )
 }

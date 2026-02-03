@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import type { FormulaRegion, PDFDocumentMetadata } from "./types";
+import type { MathfieldElement } from 'mathlive';
 import PDFOpener from "./components/PDFOpener";
 import PDFLoadingPage from "./components/PDFLoadingPage";
 import PDFErrorPage from "./components/PDFErrorPage";
@@ -15,6 +16,7 @@ import './styles/global.css';
 import Header from "./components/Header";
 
 export const API = import.meta.env.MODE === 'development' ? 'http://localhost:9095/pdf_reader/api' : 'http://localhost:9095/pdf_reader/api';
+
 
 /**
  * Fetches mathematical formula regions from a PDF file.
@@ -117,13 +119,6 @@ async function fetchPDFMetadata(pdfUrl: string, onProgress: (progress: number) =
   };
 }
 
-interface MathfieldElement extends HTMLElement {
-  executeCommand: (command: string, ...args: any[]) => void;
-  focus: () => void;
-  setValue: (value: string) => void;
-  getValue: () => string;
-  latex: string;
-}
 interface PDFSearchHistoryItem {
   query: string
   results: SearchResult[]
@@ -146,6 +141,8 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [selectedFormula] = useState<string | null>(null);
+  const [searchBarContent, setSearchBarContent] = useState<string>('');
+  const [scrollToPage, setScrollToPage] = useState<number | undefined>();
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
   const [searchHistory, setSearchHistory] = useState<PDFSearchHistoryItem[]>(() => {
     const stored = localStorage.getItem("pdfSearchHistory")
@@ -159,6 +156,8 @@ const [currentQueryAndResults, setCurrentQueryAndResults] = useState<{
   query: string;
   results: SearchResult[];
 }[]>([]);
+
+
 
 useEffect(() => {
   const element = mathFieldRef.current;
@@ -188,6 +187,7 @@ useEffect(() => {
     element.removeEventListener('mode-change', handleModeChange);
   };
 }, []); // run once
+
 useEffect(() => {
   if (mathFieldRef.current) {
     mathFieldRef.current.executeCommand("switchMode", isMathMode ? "math" : "text");
@@ -227,13 +227,21 @@ useEffect(() => {
       </div>
     );
   }
+
+  // A formula in the siderbar was clicked
   const handleFormulaClick = (latex: string) => {
     if (mathFieldRef.current) {
       // Insert formula at current cursor position
       const currentValue = mathFieldRef.current.getValue();
       const separator = currentValue && !currentValue.endsWith(' ') ? ' ' : '';
       mathFieldRef.current.setValue(currentValue + separator + latex);
+      setSearchBarContent(currentValue + separator + latex); // Update state immediately
       mathFieldRef.current.focus(); // keep focus for immediate editing/searching
+    }
+    // Find the region matching this latex and scroll to it
+    const region = pdfDocumentMetadata?.regions.find(r => r.latex === latex);
+    if (region) {
+      setScrollToPage(region.pageNumber);
     }
   };
   const handleSearch = () => {
@@ -248,6 +256,7 @@ useEffect(() => {
           addSearch(searchValue, results);
           if (mathFieldRef.current) {
             mathFieldRef.current.setValue('');
+            setSearchBarContent(''); // Manually update state when clearing
             mathFieldRef.current.focus();
           }
         })
@@ -370,8 +379,10 @@ useEffect(() => {
           <div style={{ width: "50%", overflowY: "auto" }} >
             <PDFContainer 
             pdfDocumentMetadata={pdfDocumentMetadata}
-            onFormulaClick={handleFormulaClick}
             mathFieldRef={mathFieldRef}
+            searchBarContent={searchBarContent}
+            scrollToPage={scrollToPage}
+            onSearchBarContentChange={setSearchBarContent}
              />
           </div>
     
@@ -392,6 +403,11 @@ useEffect(() => {
                 ref={mathFieldRef}
                 placeholder="\[Search\ mathematics...\]"
                 style={{ flexGrow: 1 }}
+                onInput={() => {
+                  // Update the shared searchBarContent state whenever the math-field changes
+                  const v = mathFieldRef.current?.getValue() || '';
+                  setSearchBarContent(v);
+                }}
               ></math-field>
     
               <button
