@@ -1,4 +1,4 @@
-import { useState, type SetStateAction } from 'react';
+import { useState, useMemo, type SetStateAction } from 'react';
 import styles from './PDFOpener.module.css';
 import { Upload, Loader2, Clock, FileText } from 'lucide-react'; // Added icons
 import { useRecentPDFs } from '../hooks/useRecentPDFs'; // Import the hook
@@ -67,6 +67,19 @@ const PDFOpener = () => {
       });
     }
   };
+
+    // Define the expiration constant (1 hour in milliseconds)
+  const FILE_EXPIRATION_MS = 3600000; 
+
+  // Filter recents to only show files less than 1 hour old
+  const validRecents = useMemo(() => {
+    const now = Date.now();
+    return recents.filter(item => {
+      // If no timestamp exists, assume it's old/invalid
+      if (!item.timestamp) return false;
+      return (now - item.timestamp) < FILE_EXPIRATION_MS;
+    });
+  }, [recents]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -139,7 +152,7 @@ const PDFOpener = () => {
         </button>
 
         {/* --- RECENT FILES LIST --- */}
-        {recents.length > 0 && (
+        {validRecents.length > 0 && (
           <div className={styles.recentSection}>
             <div className={styles.recentHeader}>
               <Clock size={16} />

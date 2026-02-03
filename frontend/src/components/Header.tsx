@@ -39,9 +39,9 @@ const Header: FC<HeaderProps> = ({
       <div className="container">
         <div className={styles.headerContent}>
           <div className={styles.titleContainer}>
-            <h1 className={styles.title}>PDF Reader</h1>
+            <h1 className={styles.title}>FoViMa</h1>
             <p className={styles.tagline}>
-              Powered by <a href="https://mathmex.com">MathMex</a>
+              A PDF Reader Powered by <a href="https://mathmex.com">MathMex</a>
             </p>
           </div>
         </div>
