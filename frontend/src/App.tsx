@@ -16,7 +16,7 @@ import './App.css';
 import './styles/global.css';
 import Header from "./components/Header";
 
-export const API = import.meta.env.MODE === 'development' ? 'http://localhost:9095/pdf_reader/api' : 'http://localhost:9095/pdf_reader/api';
+export const API = import.meta.env.MODE === 'development' ? 'http://localhost:9095/pdf_reader/api' : 'http://mathmex.com/pdf_reader/api';
 
 
 /**
