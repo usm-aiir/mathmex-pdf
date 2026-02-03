@@ -18,10 +18,10 @@ import httpx
 # Create an asynchronous HTTP client using httpx
 client = httpx.AsyncClient()
 
-# LaTeX to spoken math conversion
+# LaTeX to spoken math conversion using pylatexenc
 import re
 from pylatexenc.latex2text import LatexNodes2Text
-from utils import GREEK_TO_SPOKEN, SYMBOLS_TO_SPOKEN, SUPERSCRIPTS, SUBSCRIPTS
+from utils import GREEK_TO_SPOKEN, SYMBOLS_TO_SPOKEN
 
 _latex2text = LatexNodes2Text()
 
@@ -488,30 +488,60 @@ def cleanup_old_files(folder: Path, max_age_seconds: int = 3600):
 
 # ==================== SPOKEN MATH CONVERSION ====================
 
+# Keywords we don't want to accidentally break when collapsing spaced chars
+_SPOKEN_KEYWORDS = {'sub', 'of', 'plus', 'minus', 'over', 'equals', 'times', 
+                    'squared', 'cubed', 'power', 'the', 'to', 'in', 'transpose',
+                    'less', 'than', 'greater', 'inverse'}
+
+def _collapse_spaced_chars(text: str) -> str:
+    """Collapse OCR artifacts like 'm o d e l' -> 'model' and '1 0 0 0' -> '1000'."""
+    
+    # Collapse spaced single letters: "m o d e l" -> "model"
+    # But protect keywords by using word boundaries
+    def collapse_letters(match):
+        chars = match.group(0).replace(' ', '')
+        # Don't collapse if it would create a keyword fragment
+        if chars.lower() in _SPOKEN_KEYWORDS:
+            return match.group(0)
+        return chars
+    
+    # Match sequences of single letters separated by spaces (3+ letters)
+    text = re.sub(r'\b([a-zA-Z]) ([a-zA-Z])(?: ([a-zA-Z]))+\b', collapse_letters, text)
+    
+    # Collapse spaced digits: "1 0 0 0 0" -> "10000"
+    text = re.sub(r'\b(\d)(?: (\d))+\b', lambda m: m.group(0).replace(' ', ''), text)
+    
+    return text
+
+
 def convert_latex_to_spoken(latex: str) -> str:
     """Convert LaTeX to spoken natural language using pylatexenc."""
     if not latex or not latex.strip():
         return ""
     
     try:
-        # Strip math delimiters
+        # Clean input
         clean = re.sub(r'^\$+|\$+$', '', latex.strip())
         clean = re.sub(r'^\\[\[\(]|\\[\]\)]$', '', clean)
+        # Remove OCR spacing artifacts in LaTeX
+        clean = re.sub(r'(?<=[a-zA-Z])\\[,;:!](?=[a-zA-Z])', '', clean)
+        clean = re.sub(r'(?<=[a-zA-Z])~(?=[a-zA-Z])', '', clean)
         
         # Convert LaTeX to unicode text
         text = _latex2text.latex_to_text(clean)
+        
+        # Collapse spaced characters from OCR artifacts EARLY
+        text = _collapse_spaced_chars(text)
         
         # Replace unicode symbols with spoken words
         for symbol, spoken in {**GREEK_TO_SPOKEN, **SYMBOLS_TO_SPOKEN}.items():
             text = text.replace(symbol, f' {spoken} ')
         
-        # Convert unicode super/subscripts to ASCII
-        for sup, char in SUPERSCRIPTS.items():
-            text = text.replace(sup, f'^{char}')
-        for sub, char in SUBSCRIPTS.items():
-            text = text.replace(sub, f'_{char}')
+        # Handle subscripts: x_i -> x sub i
+        text = re.sub(r'(\w+)\s*_\s*(\{[^}]+\}|[a-zA-Z0-9,]+)', 
+                      lambda m: f"{m.group(1)} sub {m.group(2).strip('{}')}", text)
         
-        # Handle powers: x^2 -> x squared, x^n -> x to the power of n
+        # Handle superscripts: x^2 -> x squared
         def speak_power(m):
             base, exp = m.group(1), m.group(2).strip('{}')
             if exp == '2': return f'{base} squared'
@@ -519,32 +549,29 @@ def convert_latex_to_spoken(latex: str) -> str:
             if exp == 'T': return f'{base} transpose'
             if exp == '-1': return f'{base} inverse'
             return f'{base} to the power of {exp}'
-        text = re.sub(r'(\w)\^(\{[^}]+\}|[0-9a-zA-Z\-]+)', speak_power, text)
-        
-        # Handle subscripts: x_i -> x sub i
-        text = re.sub(r'(\w)_(\{[^}]+\}|[0-9a-zA-Z]+)',
-                      lambda m: f"{m.group(1)} sub {m.group(2).strip('{}')}", text)
+        text = re.sub(r'(\w+)\s*\^\s*(\{[^}]+\}|[a-zA-Z0-9\-]+)', speak_power, text)
         
         # Basic operators
         text = text.replace('+', ' plus ').replace('=', ' equals ')
         text = text.replace('<', ' less than ').replace('>', ' greater than ')
         text = re.sub(r'(?<=[a-zA-Z\s])-(?=[a-zA-Z\s])', ' minus ', text)
         
-        # Fractions and Big-O
-        text = re.sub(r'(\w+)/(\w+)', r'\1 over \2', text)
-        text = re.sub(r'O\s*\(([^)]+)\)', r'O of \1', text)
+        # Fractions
+        text = re.sub(r'(\w+)\s*/\s*(\w+)', r'\1 over \2', text)
         
         # Parentheses
         text = re.sub(r'\(', ' of ', text)
         text = re.sub(r'\)', ' ', text)
         
-        # Clean up and capitalize
+        # Cleanup
+        text = re.sub(r'\bof\s+of\b', 'of', text)
         text = re.sub(r'\s+', ' ', text).strip()
         return text[0].upper() + text[1:] if text else f"Formula: {latex}"
     
     except Exception as e:
-        logging.error(f"Error converting LaTeX: {e}")
-        return f"Formula: {latex}"
+        logging.error(f"LaTeX conversion failed: {e}")
+    
+    return f"Formula: {latex}"
 
 @lru_cache(maxsize=2048)
 def get_spoken_math_cached(latex: str) -> str:

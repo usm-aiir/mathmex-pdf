@@ -42,6 +42,7 @@ SYMBOLS_TO_SPOKEN = {
     # Calculus
     '∂': ' partial ', '∇': ' del ', '∞': ' infinity ',
     '∑': ' the sum of ', '∏': ' the product of ', '∫': ' the integral of ',
+    '√': ' square root of ', '∛': ' cube root of ', '∜': ' fourth root of ',
     # Other
     '…': ' and so on ', '⋯': ' and so on ', '′': ' prime ',
     '∘': ' composed with ', '⊕': ' direct sum ', '⊗': ' tensor product ',
