@@ -1,0 +1,132 @@
+/* PDFViewer.module.css */
+
+.container {
+    display: flex;
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+    position: relative;
+    background-color: var(--background-color);
+  }
+  
+  .content {
+    flex: 1;
+    overflow-y: auto; /* Scrollable main PDF content */
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .pdfPageWrapper {
+    width: 100%;
+    max-width: 900px;
+    margin-bottom: 2rem;
+    position: relative;
+    transition: opacity 0.3s ease-in-out;
+  }
+  
+  /* Placeholder style for lazy loading */
+  .pdfPageWrapper > div {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: var(--placeholder-bg, #f5f5f5);
+    border: 1px dashed var(--placeholder-border, #ccc);
+    min-height: 900px;
+  }
+  
+  /* Right Sidebar */
+  .sidebar {
+    width: 400px;
+    max-width: 50%;
+    background-color: var(--container-color);
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    overflow-y: auto;
+    border-left: 1px solid var(--border-color, #ddd);
+  }
+  
+  /* Search bar */
+  .searchBarContainer {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  
+  .searchButton, .modeToggleButton {
+    cursor: pointer;
+    border: 1px solid var(--primary-accent);
+    background-color: var(--button-bg, #2563eb);
+    color: var(--button-color, #fff);
+    padding: 0.4rem 0.8rem;
+    border-radius: var(--border-radius, 0.25rem);
+    transition: background-color 0.2s, color 0.2s;
+  }
+  
+  .searchButton:hover, .modeToggleButton:hover {
+    background-color: var(--primary-accent);
+    color: var(--primary-text);
+  }
+  
+  /* Results list */
+  .noResultsMessage {
+    text-align: center;
+    color: var(--primary-alt);
+    margin-top: 1rem;
+  }
+  
+  /* PDF page content placeholder fade-in */
+  .pdfPageWrapper .pdfPageLoaded {
+    opacity: 1;
+  }
+  
+  .pdfPageWrapper div:not(.pdfPageLoaded) {
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out;
+  }
+  
+  /* Make sure selection button is fixed or properly positioned */
+  .selectionButtonWrapper {
+    position: sticky;
+    bottom: 1rem;
+    align-self: center;
+  }
+  .pdfPageWrapper {
+    position: relative;
+    width: 100%;
+    max-width: 900px; /* or whatever fits your layout */
+    margin-bottom: 1.5rem;
+    background-color: #fff; /* make sure the page is visible */
+    box-shadow: 0 0 2px rgba(0,0,0,0.1);
+  }
+  
+  
+  .pdfPageWrapper .placeholder {
+    width: 100%;
+    height: 900px; /* Approximate height of a page */
+    background-color: var(--placeholder-bg, #f5f5f5);
+    border: 1px dashed var(--placeholder-border, #ccc);
+  }
+  
+  .pdfPageWrapper.pdfPageLoaded {
+    opacity: 1;
+    transition: opacity 0.3s ease-in-out;
+  }
+  
+  .pdfPageWrapper:not(.pdfPageLoaded) {
+    opacity: 0;
+  }
+  
+  .react-pdf__Page__canvas {
+    opacity: 1 !important; /* ensure canvas is fully visible */
+    width: 100% !important;
+    height: auto !important;
+  }
+  
+  .react-pdf__Page__textContent {
+    opacity: 1 !important; /* ensure text layer is visible */
+    color: black; /* or match your theme */
+  }
+  

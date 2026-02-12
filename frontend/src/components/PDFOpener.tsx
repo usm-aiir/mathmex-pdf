@@ -55,19 +55,58 @@ const PDFOpener = () => {
             return;
         }
 
-        if (isValidUrl(link)) {
-            // If the URL is valid, open it in the same tab
-            // Note: For security reasons in a real application, you might want to
-            // sanitize the URL or use a proxy to prevent direct external navigation.
-            // For this example, we're directly constructing the URL.
-            const currentUrl = window.location.href;
-            const newUrl = `${currentUrl}/pdf/${link}`; // Assuming a route like /pdf/:url
-            window.location.href = newUrl;
-        } else {
-            // If the URL is invalid, show an error message with format guidance
-            setMessage({ text: 'Please enter a valid URL (e.g., https://example.com/document.pdf).', type: 'error' });
-        }
-    };
+    if (isValidUrl(link)) {
+      // Add to history (auto-generates name from URL)
+      addRecent(link);
+      navigateToPdf(link);
+    } else {
+      setMessage({
+        text: 'Please enter a valid PDF URL.',
+        type: 'error',
+      });
+    }
+  };
+
+    // Define the expiration constant (1 hour in milliseconds)
+  const FILE_EXPIRATION_MS = 3600000; 
+
+  // Filter recents to only show files less than 1 hour old
+  const validRecents = useMemo(() => {
+    const now = Date.now();
+    return recents.filter(item => {
+      // If no timestamp exists, assume it's old/invalid
+      if (!item.timestamp) return false;
+      return (now - item.timestamp) < FILE_EXPIRATION_MS;
+    });
+  }, [recents]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    setMessage({ text: '', type: '' });
+
+    try {
+      const form = new FormData();
+      form.append("file", file);
+
+      const res = await fetch("https://api.pdf.mathmex.com/upload_pdf", { method: "POST", body: form });
+      if (!res.ok) throw new Error("Upload failed");
+      
+      const data = await res.json();
+      
+      // Add to history using the REAL filename from the file object
+      addRecent(data.pdf_url, file.name);
+
+      navigateToPdf(data.pdf_url);
+    } catch (error) {
+      console.error(error);
+      setMessage({ text: 'Failed to upload PDF.', type: 'error' });
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
     return (
         // Main container for the whole page

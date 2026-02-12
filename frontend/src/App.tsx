@@ -9,7 +9,8 @@ import './App.css';
 import './styles/global.css';
 import Header from "./components/Header";
 
-export const API = import.meta.env.MODE === 'development' ? 'http://localhost:9095/pdf_reader/api' : 'https://mathmex.com/pdf_reader/api';
+export const API = import.meta.env.MODE === 'development' ? 'http://localhost:9095/pdf_reader/api' : 'https://api.pdf.mathmex.com';
+
 
 /**
  * Fetches mathematical formula regions from a PDF file.
@@ -139,12 +140,292 @@ function App() {
       </div>
     );
   }
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
-      <Header />
-      <PDFViewer pdfDocumentMetadata={pdfDocumentMetadata} />
-    </div>
-  );
-}
 
-export default App
+  // A formula in the siderbar was clicked
+  const handleFormulaClick = (latex: string) => {
+    if (mathFieldRef.current) {
+      // Insert formula at current cursor position
+      const currentValue = mathFieldRef.current.getValue();
+      const separator = currentValue && !currentValue.endsWith(' ') ? ' ' : '';
+      mathFieldRef.current.setValue(currentValue + separator + latex);
+      setSearchBarContent(currentValue + separator + latex); // Update state immediately
+      mathFieldRef.current.focus(); // keep focus for immediate editing/searching
+    }
+    // Find the region matching this latex and scroll to it
+    const region = pdfDocumentMetadata?.regions.find(r => r.latex === latex);
+    if (region) {
+      setScrollToPage(region.pageNumber);
+    }
+  };
+  const handleSearch = () => {
+    const searchValue = mathFieldRef.current?.getValue();
+    if (searchValue) {
+      console.log("Performing search for:", searchValue);
+      setIsSearching(true);
+      setSearchError(null); // Clear any previous errors
+      performSearch(searchValue)
+        .then(results => {
+          // Always add to history even if empty results
+          addSearch(searchValue, results);
+          if (mathFieldRef.current) {
+            mathFieldRef.current.setValue('');
+            setSearchBarContent(''); // Manually update state when clearing
+            mathFieldRef.current.focus();
+          }
+        })
+        .catch(error => {
+          console.error("Search failed:", error);
+          setSearchError("Search failed. Please try again.");
+        })
+        .finally(() => {
+          setIsSearching(false);
+        });
+    } else {
+      console.warn("Search initiated, but the MathField is empty.");
+    }
+  };
+
+  async function performSearch(query: string): Promise<SearchResult[]> {
+    console.log(`Searching with query: ${query}`)
+    // Use pdf-reader proxy to avoid CORS issues
+    const result = await fetch(`${API}/fusion-search`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: query,
+        sources: [],
+        mediaTypes: [],
+        top_k: 50
+      })
+    });
+    
+    if (!result.ok) {
+      throw new Error(`Search request failed with status ${result.status}`);
+    }
+    
+    const json = await result.json();
+    console.log("Search results:", json);
+    
+    if (!json.results || !Array.isArray(json.results)) {
+      throw new Error("Invalid search response format");
+    }
+    
+    return json.results as SearchResult[];
+  }
+
+    /* ---------- Add search ---------- */
+    const addSearch = (query: string, results: SearchResult[]) => {
+      const item = { query, results }
+      setSearchHistory(prev => [item, ...prev])
+      setCurrentQueryAndResults(prev => [item, ...prev])
+    }
+
+    /* ---------- Restore ---------- */
+    const restoreFromHistory = (item: PDFSearchHistoryItem) => {
+      setCurrentQueryAndResults(prev => [item, ...prev])
+      // Move clicked item to the top of history
+      setSearchHistory(prev => {
+        const filtered = prev.filter(historyItem => historyItem !== item)
+        return [item, ...filtered]
+      })
+    }
+    
+    /* ---------- Clear history ---------- */
+    const clearHistory = () => {
+      setSearchHistory([])
+      localStorage.removeItem("pdfSearchHistory")
+    }
+    
+    /* ---------- Export ---------- */
+    const exportHistory = () => {
+      const blob = new Blob(
+        [JSON.stringify(searchHistory, null, 2)],
+        { type: "application/json" }
+      )
+
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "pdf-search-history.json"
+      a.click()
+      URL.revokeObjectURL(url)
+    }
+
+    
+      
+  
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw' }}>
+        {/* ---------- HEADER ---------- */}
+        <Header
+          isHistoryOpen={isHistoryOpen}
+          onToggleHistory={() => setIsHistoryOpen(prev => !prev)}
+        />
+    
+        {/* ================= HISTORY SIDEBAR ================= */}
+        <HistorySidebar
+          history={searchHistory}
+          isOpen={isHistoryOpen}
+          onClear={clearHistory}
+          onExport={exportHistory}
+          onSelect={restoreFromHistory}
+          onClose={() => setIsHistoryOpen(false)}
+        />
+    
+
+    
+        {/* ---------- FORMULA SIDEBAR ---------- */}
+        {pdfDocumentMetadata?.formulas && (
+          <FormulaSidebar
+            formulas={pdfDocumentMetadata.formulas}
+            selectedFormula={selectedFormula}
+            onFormulaClick={handleFormulaClick}
+          />
+        )}
+    
+        {/* ---------- MAIN CONTENT: PDF + RIGHT SIDEBAR ---------- */}
+        <div style={{ display: "flex", flexGrow: 1, width: "100%", overflowY: "auto" }}>
+          
+          {/* Left: PDF Viewer (50%) */}
+          <div style={{ width: "50%", overflowY: "auto", display: "flex", flexDirection: "column" }} >
+            <div style={{ flexGrow: 1, overflowY: "auto" }}>
+              <PDFContainer 
+                pdfDocumentMetadata={pdfDocumentMetadata}
+                    mathFieldRef={mathFieldRef}
+             searchBarContent={searchBarContent}
+            scrollToPage={scrollToPage}
+            onSearchBarContentChange={setSearchBarContent}
+             />
+            </div>
+            
+            {/* Accessibility Controls Bar */}
+            <div style={{ 
+              padding: "10px 16px", 
+              borderTop: "1px solid #eee", 
+              display: "flex", 
+              alignItems: "center", 
+              gap: "12px",
+              backgroundColor: "#f8f9fa"
+            }}>
+              <button
+                onClick={handleDownloadAnnotatedPdf}
+                disabled={isDownloadingAnnotatedPdf || !spokenMathLoaded}
+                style={{
+                  padding: "8px 16px",
+                  backgroundColor: isDownloadingAnnotatedPdf ? "#ccc" : "#2563eb",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: isDownloadingAnnotatedPdf ? "not-allowed" : "pointer",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  transition: "background-color 0.2s"
+                }}
+                title="Download a PDF with spoken math annotations that appear when hovering over formulas"
+              >
+                {isDownloadingAnnotatedPdf ? (
+                  <>
+                    <span style={{ 
+                      display: "inline-block", 
+                      width: "14px", 
+                      height: "14px", 
+                      border: "2px solid #fff",
+                      borderTopColor: "transparent",
+                      borderRadius: "50%",
+                      animation: "spin 1s linear infinite"
+                    }} />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    Download Annotated PDF
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+    
+          {/* Right: Query + Search Results Sidebar (50%) */}
+          <div className={PDFstyles.sidebar} style={{ width: "50%", display: "flex", flexDirection: "column" }}>
+            
+            {/* ---------- Search Bar ---------- */}
+            <div className={PDFstyles.searchBarContainer}>
+              <button
+                className={PDFstyles.modeToggleButton}
+                onClick={() => setIsMathMode(!isMathMode)}
+                title={isMathMode ? "Switch to Text Mode" : "Switch to Math Mode"}
+              >
+                {isMathMode ? "𝟄𝐚𝐛𝐜" : "𝑎𝑏𝑐"}
+              </button>
+    
+              <math-field
+                ref={mathFieldRef}
+                placeholder="\[Search\ mathematics...\]"
+                style={{ flexGrow: 1 }}
+                onInput={() => {
+                  // Update the shared searchBarContent state whenever the math-field changes
+                  const v = mathFieldRef.current?.getValue() || '';
+                  setSearchBarContent(v);
+                }}
+              ></math-field>
+    
+              <button
+                className={PDFstyles.searchButton}
+                onClick={handleSearch}
+              >
+                Search
+              </button>
+            </div>
+    
+            {/* ---------- Search Results ---------- */}
+            <div style={{ flexGrow: 1, overflowY: "auto", marginTop: "10px" }}>
+              {currentQueryAndResults.length > 0 && (
+                <button
+                  className={PDFstyles.clearButton}
+                  onClick={() => setCurrentQueryAndResults([])}
+                >
+                  Clear Results
+                </button>
+              )}
+    
+              {isSearching && (
+                <div className={PDFstyles.loadingContainer}>
+                  <div className={PDFstyles.loadingSpinner}></div>
+                  <p className={PDFstyles.loadingText}>Searching...</p>
+                </div>
+              )}
+
+              {searchError && (
+                <div className={PDFstyles.errorContainer}>
+                  <p className={PDFstyles.errorText}>{searchError}</p>
+                </div>
+              )}
+    
+              {!isSearching && currentQueryAndResults.length > 0 ? (
+                currentQueryAndResults
+                  .slice()
+                  .map((item, index) => (
+                    <QueryAndResult
+                      key={index}
+                      query={item.query}
+                      results={item.results}
+                    />
+                  ))
+              ) : !isSearching && !searchError ? (
+                <p className={PDFstyles.noResultsMessage}>
+                  Perform a search to see results here.
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+    }
+  export default App;
+  
