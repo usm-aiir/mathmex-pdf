@@ -1,4 +1,5 @@
 import logging
+import io
 
 from fastapi.concurrency import asynccontextmanager
 
@@ -16,6 +17,22 @@ from fastapi.middleware.cors import CORSMiddleware
 import httpx
 # Create an asynchronous HTTP client using httpx
 client = httpx.AsyncClient()
+
+# LaTeX to spoken math conversion using pylatexenc
+import re
+from pylatexenc.latex2text import LatexNodes2Text
+from utils import GREEK_TO_SPOKEN, SYMBOLS_TO_SPOKEN
+
+_latex2text = LatexNodes2Text()
+
+# Import PyMuPDF for PDF annotation
+try:
+    import fitz  # PyMuPDF
+    PYMUPDF_AVAILABLE = True
+    logging.info("PyMuPDF library loaded successfully for PDF annotation.")
+except ImportError:
+    PYMUPDF_AVAILABLE = False
+    logging.warning("PyMuPDF library not available. PDF annotation feature will be disabled.")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -64,19 +81,6 @@ class PDFMathFormula(NamedTuple):
 # Import lru_cache for memoization (caching function results)
 from functools import lru_cache
 
-@lru_cache(maxsize=32)
-def download_pdf(pdf_url: str) -> bytes:
-    """
-    Download the PDF file from the given URL and return its content as bytes.
-    The result is cached to avoid re-downloading the same PDF.
-    """
-    logging.info(f"Downloading PDF from URL: {pdf_url}")
-    response = requests.get(pdf_url)
-    # Raise an error if the PDF download fails
-    if response.status_code != 200:
-        raise ValueError("Failed to download PDF from the provided URL.")
-    return response.content
-
 # Import Image from PIL (Pillow) for image manipulation
 from PIL import Image
 
@@ -106,12 +110,25 @@ def get_pdf_images(pdf_url: str) -> list[Image.Image]:
     images = convert_pdf_to_images(pdf_bytes)
     return images
 
-# Import LatexOCR for converting images of math formulas to LaTeX, and MathFormulaDetector for detecting formulas
-from pix2tex.cli import LatexOCR
+from pdf2image import convert_from_bytes
+
+def get_pdf_page_image(pdf_url: str, page_num: int) -> Image.Image:
+    pdf_bytes = download_pdf(pdf_url)
+    images = convert_from_bytes(
+        pdf_bytes,
+        dpi=300,
+        first_page=page_num,
+        last_page=page_num
+    )
+    return images[0]
+
+@lru_cache(maxsize=64)  # 64 pages total across all PDFs
+def get_cached_page(pdf_url: str, page_num: int):
+    return get_pdf_page_image(pdf_url, page_num)
+
+# Import MathFormulaDetector for detecting formulas
 from pix2text import MathFormulaDetector
 
-# Initialize the LatexOCR model
-latex_model = LatexOCR()
 # Initialize the MathFormulaDetector model
 math_detector = MathFormulaDetector()
 # Set a minimum score for detected math formulas to be considered valid
@@ -156,6 +173,7 @@ async def get_pdf(pdf_url: str):
     """
     logging.info(f"Received request to get PDF from URL: {pdf_url}")
     try:
+        pdf_url = resolve_pdf_path(pdf_url)
         # Download the PDF bytes
         pdf_bytes = download_pdf(pdf_url)
         # Return the PDF bytes with the appropriate media type
@@ -167,26 +185,64 @@ async def get_pdf(pdf_url: str):
 # Import json module
 import json
 
-@lru_cache(maxsize=32)
+from functools import lru_cache
+
+@lru_cache(maxsize=256)  # Cache per-page results (adjust maxsize as needed)
+def get_pdf_page_regions(pdf_url: str, page_num: int) -> list[PDFMathFormula]:
+    """
+    Get the bounding boxes of math formulas for a single page of a PDF.
+    Returns a list of PDFMathFormula for that page.
+    """
+    logging.info(f"Processing PDF {pdf_url}, page {page_num}")
+    pdf_url = resolve_pdf_path(pdf_url)
+    
+    # Convert just this page to an image
+    from pdf2image import convert_from_bytes
+    pdf_bytes = download_pdf(pdf_url)
+    image = convert_from_bytes(pdf_bytes, dpi=300, first_page=page_num, last_page=page_num)[0]
+
+    # Detect formulas in this single page
+    formulas = []
+    results = math_detector.detect(image)
+    if results:
+        for result in results:
+            if isinstance(result, dict) and 'box' in result and 'score' in result:
+                if result['score'] >= min_score:
+                    bbox = [
+                        result['box'][0][0] / image.width,
+                        result['box'][0][1] / image.height,
+                        result['box'][2][0] / image.width,
+                        result['box'][2][1] / image.height,
+                    ]
+                    formulas.append(PDFMathFormula(page=page_num, formula=None, bbox=bbox))
+    return formulas
+
+
 def get_pdf_regions(pdf_url: str) -> list[dict]:
     """
-    Get the bounding boxes of math formulas in a PDF file given its URL.
-    This function caches the results to avoid repeated downloads and processing.
+    Process the PDF page by page, returning all detected formula regions.
+    This avoids loading the entire PDF into memory at once.
     """
     logging.info(f"Getting PDF regions for URL: {pdf_url}")
-    # Get PDF images and then detect bounding boxes of formulas
-    images = get_pdf_images(pdf_url)
-    formulas = get_bounding_boxes(images)
+    pdf_url = resolve_pdf_path(pdf_url)
+    # First, figure out how many pages we have
+    pdf_bytes = download_pdf(pdf_url)
+    from pdf2image import pdfinfo_from_bytes
+    info = pdfinfo_from_bytes(pdf_bytes)
+    num_pages = info['Pages']
 
-    # Enumerate the detected bounding boxes and format them as a list of dictionaries
+    all_formulas = []
+
+    # Process each page one at a time
+    for page_num in range(1, num_pages + 1):
+        page_formulas = get_pdf_page_regions(pdf_url, page_num)
+        all_formulas.extend(page_formulas)
+
+    # Enumerate results for front-end
     enumerated_bboxes = [
-        {
-            "bbox": f.bbox,
-            "pagenum": f.page,
-            "id": i
-         } for i, f in enumerate(formulas)
+        {"bbox": f.bbox, "pagenum": f.page, "id": i} for i, f in enumerate(all_formulas)
     ]
-    
+
     return enumerated_bboxes
 
 
@@ -197,6 +253,7 @@ async def predict_math_regions(pdf_url: str):
     """
     logging.info(f"Received request to predict math regions for PDF URL: {pdf_url}")
     try:
+        pdf_url = resolve_pdf_path(pdf_url)
         # Get the predicted math regions
         regions = get_pdf_regions(pdf_url)
         if not regions:
@@ -208,6 +265,11 @@ async def predict_math_regions(pdf_url: str):
     except Exception as e:
         logging.error(f"Error processing PDF: {e}")
         return {"error": str(e)}
+
+from pix2text import Pix2Text
+# Initialize the full pipeline (Detector + Recognizer)
+# This replaces both 'latex_model' and 'math_detector'
+p2t = Pix2Text.from_config()
 
 @lru_cache(maxsize=2048)
 def get_pdf_latex(pdf_url: str, latex_id: int) -> dict:
@@ -226,10 +288,14 @@ def get_pdf_latex(pdf_url: str, latex_id: int) -> dict:
     # Get the bounding box for the specified region ID
     bbox = regions[latex_id]
     # Get the images of the PDF
-    images = get_pdf_images(pdf_url)
+    # images = get_pdf_images(pdf_url)
     
-    # Extract the specific page image where the formula is located
-    page_image = images[bbox['pagenum'] - 1]
+    # # Extract the specific page image where the formula is located
+    # page_image = images[bbox['pagenum'] - 1]
+
+    page_image = get_cached_page(pdf_url, bbox["pagenum"])
+
+
     # Convert normalized bounding box coordinates to pixel values
     x1, y1, x2, y2 = bbox['bbox']
     width, height = page_image.size
@@ -237,9 +303,16 @@ def get_pdf_latex(pdf_url: str, latex_id: int) -> dict:
     # Crop the image to isolate the math formula
     image = page_image.crop((x1, y1, x2, y2))
     logging.info(f"Extracted image for region {latex_id} with size: {image.size}")
-    
-    # Convert the cropped image of the math formula to LaTeX string using LatexOCR
-    latex = latex_model(image)
+
+
+    try:
+        # resized_shape uses a larger default (768) which preserves details
+        latex = p2t.recognize_formula(image) 
+    except Exception as e:
+        logging.error(f"P2T Recognition failed: {e}")
+        latex = ""
+
+
     return {"latex": latex}
 
 @app.get("/get_latex_for_region/{region_id:int}/{pdf_url:path}")
@@ -249,6 +322,7 @@ async def get_latex_for_region(region_id: int, pdf_url: str):
     """
     logging.info(f"Received request to get LaTeX for region {region_id} in PDF URL: {pdf_url}")
     try:
+        pdf_url = resolve_pdf_path(pdf_url)
         # Get the LaTeX data for the specified region
         latex_data = get_pdf_latex(pdf_url, region_id)
         if "latex" not in latex_data:
@@ -268,44 +342,58 @@ def simple_test():
     return {"message": "Hello from simple test!"}
 
 from fastapi import Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 
 mathmex_api = "https://api.mathmex.com"
 
 @app.post("/fusion-search")
 async def fusion_search_proxy(request: Request):
     """
-    Search endpoint that forwards the request to the MathMex API.
+    Search endpoint that forwards the request to the MathMex API fusion-search endpoint.
     """
-    logging.info(f"Search endpoint called with query: {request.query_params}")
-    forward_headers = {
-        key: value for key, value in request.headers.items()
-        if key.lower() not in ["host", "accept-encoding", "user-agent", "content-length"]
-    }
-    # Add Content-Type if it's not already there or to ensure it's correct
-    forward_headers["Content-Type"] = "application/json"
-    mathmex_response = await client.post(
-            f"{mathmex_api}/search",
-            json=await request.json(), # httpx handles JSON serialization here
-            headers=forward_headers,
-            # You might want to explicitly set a timeout for the external request
-            timeout=30.0 # Example timeout
-        )
+    try:
+        logging.info(f"Fusion search endpoint called")
+        request_body = await request.json()
+        logging.info(f"Request body: {request_body}")
+        
+        forward_headers = {
+            key: value for key, value in request.headers.items()
+            if key.lower() not in ["host", "accept-encoding", "user-agent", "content-length"]
+        }
+        forward_headers["Content-Type"] = "application/json"
+        
+        logging.info(f"Forwarding to: {mathmex_api}/fusion-search")
+        mathmex_response = await client.post(
+                f"{mathmex_api}/fusion-search",
+                json=request_body,
+                headers=forward_headers,
+                timeout=30.0
+            )
+        
+        logging.info(f"MathMex response status: {mathmex_response.status_code}")
+        
+        # If MathMex returns an error status, parse and return the JSON error response
+        if mathmex_response.status_code >= 400:
+            error_data = mathmex_response.json()
+            logging.error(f"MathMex returned error: {error_data}")
+            return JSONResponse(
+                content={"error": error_data.get("error", "Unknown error"), "results": [], "total": 0},
+                status_code=mathmex_response.status_code
+            )
 
-    async def generate_response_chunks():
-            async for chunk in mathmex_response.aiter_bytes():
-                yield chunk
+        # For successful responses, stream the content back
+        async def generate_response_chunks():
+                async for chunk in mathmex_response.aiter_bytes():
+                    yield chunk
 
-    # 6. Set headers from the MathMex response to your proxy response
-    # Exclude headers that should not be directly forwarded (e.g., transfer-encoding)
-    response_headers = {
-        key: value for key, value in mathmex_response.headers.items()
-        if key.lower() not in ["content-encoding", "transfer-encoding", "connection"]
-    }
-    # Ensure CORS headers are added by the middleware, not overwritten by proxied headers
-    response_headers.pop("access-control-allow-origin", None)
-    response_headers.pop("access-control-allow-methods", None)
-    response_headers.pop("access-control-allow-headers", None)
+        response_headers = {
+            key: value for key, value in mathmex_response.headers.items()
+            if key.lower() not in ["content-encoding", "transfer-encoding", "connection"]
+        }
+        # Remove CORS headers - let our middleware handle them
+        response_headers.pop("access-control-allow-origin", None)
+        response_headers.pop("access-control-allow-methods", None)
+        response_headers.pop("access-control-allow-headers", None)
 
         return StreamingResponse(
             generate_response_chunks(),

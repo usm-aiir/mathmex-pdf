@@ -5,8 +5,8 @@
     --primary-light: #ececf0;
     --primary-alt: #c7c1e6;
 
-    --primary-accent: #0074d9;
-    --accent-alt: #339cff;
+    --primary-accent: #7000d9;
+    --accent-alt: #9c33ff;
     --glow-accent: rgba(0, 116, 217, 0.15);
 
     --border-radius: 25px;
@@ -16,9 +16,9 @@
     --container-color: #f5f6fa;
     --background-color: #ececf0;
 
-    --button-color: #001fff;
+    --button-color: #a200ff;
     --button-active-color: #003fff;
-    --primary-text: #0054ff;
+    --primary-text: #8400ff;
 
     /* MathLive color styles */
     --keyboard-toolbar-text: var(--primary-dark);
@@ -38,10 +38,16 @@
 
     --caret-color: var(--primary-dark);
 
-    overflow-y: scroll;
+    overflow-y: hidden;
     scrollbar-width: none;
     -ms-overflow-style: none;
     .root::-webkit-scrollbar {
         display: none;
     }
+}
+
+/* Spinner animation for loading states */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }

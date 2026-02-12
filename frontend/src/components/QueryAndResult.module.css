@@ -10,7 +10,17 @@
     display: flex;
     flex-direction: column;
     gap: 10px; /* Space between query and results */
+    overflow: hidden;
 }
+.bodyText p,
+.bodyText div,
+.bodyText ul,
+.bodyText ol {
+  margin: 0;
+}
+.bodyText > *:last-child {
+    margin-bottom: 0;
+  }
 
 .querySection {
     padding: 8px;
@@ -34,6 +44,7 @@
     flex-wrap: wrap; /* Allow results to wrap to the next line */
     gap: 10px; /* Space between result chips */
     justify-content: flex-start; /* Align items to the start */
+    overflow: hidden;
 }
 
 .resultsLabel {

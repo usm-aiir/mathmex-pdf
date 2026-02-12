@@ -1,19 +1,23 @@
 import styles from "./Header.module.css"
 import type { FC } from "react"
+import { History, Home } from "lucide-react"
 
-/**
- * Header.tsx
- *
- * Application header component. Displays the app title, tagline, and theme (dark/light) toggle buttons.
- */
-/**
- * Header component for the MathMex app.
- *
- * Displays the app title, tagline, and theme toggle buttons for dark/light mode.
- *
- * @returns {JSX.Element} The rendered header.
- */
-const Header: FC<{  }> = ({  }) => {
+interface HeaderProps {
+  onToggleHistory?: () => void
+  isHistoryOpen?: boolean
+}
+
+const Header: FC<HeaderProps> = ({
+  onToggleHistory,
+  isHistoryOpen = false,
+}) => {
+  const showHistoryToggle =
+    typeof onToggleHistory === "function" &&
+    typeof isHistoryOpen === "boolean"
+
+  const goHome = () => {
+    window.location.href = "/pdf_reader/";
+  };
 
   return (
     <header className={styles.header}>

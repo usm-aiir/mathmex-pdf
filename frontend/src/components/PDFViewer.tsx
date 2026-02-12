@@ -1,216 +1,265 @@
-import { useEffect, useRef, useState } from 'react';
-import { Document } from 'react-pdf';
+import { useState, memo, useRef, useEffect } from 'react';
+import { Document, pdfjs } from 'react-pdf';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
+
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker&url';
 
-import { pdfjs } from 'react-pdf';
-import type { DocumentCallback } from 'react-pdf/dist/shared/types.js';
-pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
+import { useVirtualizer } from '@tanstack/react-virtual';
+import type { MathfieldElement } from 'mathlive';
+import 'mathlive';
 
-import type { PDFDocumentMetadata } from '../types';
 import PDFPage from './PDFPage';
 import SelectionButton from './SelectionButton';
-import "mathlive"
+
+import type { PDFDocumentMetadata } from '../types';
 import { API } from '../App';
-import type { SearchResult } from './QueryAndResult';
-import QueryAndResult from './QueryAndResult';
 
-// Import the CSS module
 import styles from './PDFViewer.module.css';
+import pageStyles from './PDFPage.module.css';
 
-// Add TypeScript declaration for the custom element
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
+
+/**
+ * Normalizes LaTeX strings for comparison by removing unnecessary braces around single characters.
+ * This allows matching between 'a^2' and 'a^{2}', 'x_i' and 'x_{i}', etc.
+ * @param latex - The LaTeX string to normalize
+ * @returns The normalized LaTeX string
+ */
+function normalizeLatex(latex: string): string {
+  if (!latex) return '';
+  
+  return latex
+    // Remove braces around single characters/digits after ^ and _
+    .replace(/([\^_])\{([a-zA-Z0-9])\}/g, '$1$2')
+    // Remove excessive whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Custom element typing for JSX
 declare global {
-    namespace JSX {
-        interface IntrinsicElements {
-            'math-field': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & { placeholder?: string };
-        }
+  namespace JSX {
+    interface IntrinsicElements {
+      'math-field': React.DetailedHTMLProps<
+        React.HTMLAttributes<HTMLElement>,
+        HTMLElement
+      > & { placeholder?: string };
     }
-}
-
-async function performSearch(query: string): Promise<SearchResult[]> {
-  try {
-    const result = await fetch(`${API}/search`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        query: query,
-        sources: [],
-        mediaTypes: [],
-        from: 0,
-        size: 5
-      })
-    });
-    const json = await result.json();
-    console.log("Search results:", json.results);
-    return json.results as SearchResult[];
-  }
-  catch (error) {
-    console.error("Error performing search:", error);
-    throw error; // Re-throw the error for further handling
   }
 }
 
-interface PDFViewerProps {
-    pdfDocumentMetadata?: PDFDocumentMetadata;
+export interface PDFViewerProps {
+  pdfDocumentMetadata: PDFDocumentMetadata;
+  mathFieldRef: React.RefObject<MathfieldElement>;
+  scrollToPage?: number;
+  searchBarContent: string;
+  onSearchBarContentChange: (content: string) => void;
 }
 
-interface MathfieldElement extends HTMLElement {
-  executeCommand: (command: string, ...args: any[]) => void;
-  focus: () => void;
-  setValue: (value: string) => void;
-  getValue: () => string;
-  latex: string;
-}
-
-function PDFViewer({ pdfDocumentMetadata }: PDFViewerProps) {
-  const mathFieldRef = useRef<MathfieldElement>(null);
-  const [isMathMode, setIsMathMode] = useState<boolean>(false); // State to track mode
-  const [currentQueryAndResults, setCurrentQueryAndResults] = useState<{ query: string; results: SearchResult[] }[]>([]);
-
-  useEffect(() => {
-      if (mathFieldRef.current) {
-          // Initialize with text mode as per your original logic
-          mathFieldRef.current.executeCommand("switchMode", "text");
-          mathFieldRef.current.focus();
-      }
-      const element = mathFieldRef.current as MathfieldElement;
-      element.addEventListener('input', () => {
-        if (element.getValue().trim() === '') {
-          // Automatically switch to text mode when the math field is empty
-          element.executeCommand("switchMode", "text");
-        }
-      });
-      element.addEventListener('mode-change', (event: CustomEvent) => {
-          setIsMathMode(event.detail.mode === 'math');
-      });
-      return () => {
-          // Cleanup event listener on unmount
-          element.removeEventListener('input', () => {});
-      };
-  }, []); // Empty dependency array to run once on mount
-
-  useEffect(() => {
-    if (mathFieldRef.current) {
-      mathFieldRef.current.executeCommand("switchMode", isMathMode ? "math" : "text");
-      mathFieldRef.current.focus(); // Keep focus on the mathfield after mode switch
-    }
-  }, [isMathMode]); // Re-run when isMathMode changes
-
+function PDFViewer({
+  pdfDocumentMetadata,
+  mathFieldRef,
+  scrollToPage,
+  searchBarContent,
+  onSearchBarContentChange,
+}: PDFViewerProps) {
+  const parentRef = useRef<HTMLDivElement>(null);
   const [numPages, setNumPages] = useState<number | null>(null);
-  async function onDocumentLoadSuccess(pdf: DocumentCallback) {
-    console.log('PDF loaded successfully:', pdf.numPages, 'pages');
+
+  function onDocumentLoadSuccess(pdf: PDFDocumentProxy) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('PDF loaded successfully:', pdf.numPages, 'pages');
+    }
     setNumPages(pdf.numPages);
   }
-  
+
   function onDocumentLoadError(error: Error) {
     console.error('PDF load error:', error);
-    console.error('Error details:', error.message);
   }
 
-  const pageNumbers = Array.from({ length: numPages || 0 }, (_, i) => i + 1);
+  const rowVirtualizer = useVirtualizer({
+    count: numPages ?? 0,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 900,
+    overscan: 1,
+  });
+
+  // Track which highlights are currently selected based on search bar content
+  const lastAppliedHighlightsRef = useRef<Set<number>>(new Set());
+
+  // Apply/remove permanent selection styling based on search bar content
+  useEffect(() => {
+    console.log('PDFViewer: searchBarContent changed:', searchBarContent);
+    
+    // Get all regions that match the search bar content
+    const matchingRegionIds = new Set<number>();
+    
+    if (searchBarContent.trim()) {
+      const normalizedSearchContent = normalizeLatex(searchBarContent);
+      console.log('PDFViewer: Normalized search content:', normalizedSearchContent);
+      
+      pdfDocumentMetadata.regions.forEach(region => {
+        if (region.latex) {
+          const normalizedRegionLatex = normalizeLatex(region.latex);
+          if (normalizedSearchContent.includes(normalizedRegionLatex)) {
+            matchingRegionIds.add(region.id);
+            console.log('PDFViewer: Found matching region:', region.id, 'original:', region.latex, 'normalized:', normalizedRegionLatex);
+          }
+        }
+      });
+    }
+
+    console.log('PDFViewer: Matching region IDs:', Array.from(matchingRegionIds));
+    console.log('PDFViewer: Previously highlighted:', Array.from(lastAppliedHighlightsRef.current));
+
+    // Remove highlighting from previously selected elements that no longer match
+    lastAppliedHighlightsRef.current.forEach(regionId => {
+      if (!matchingRegionIds.has(regionId)) {
+        const el = document.getElementById(`highlight-${regionId}`);
+        console.log('PDFViewer: Removing highlight from region:', regionId, 'element:', el);
+        el?.classList.remove(pageStyles.selected);
+      }
+    });
+
+    // Add highlighting to newly matching elements
+    matchingRegionIds.forEach(regionId => {
+      const el = document.getElementById(`highlight-${regionId}`);
+      if (el) {
+        console.log('PDFViewer: Adding highlight to region:', regionId);
+        el.classList.add(pageStyles.selected);
+      }
+    });
+
+    lastAppliedHighlightsRef.current = matchingRegionIds;
+  }, [searchBarContent, pdfDocumentMetadata.regions]);
+
+  // Observe DOM additions ONLY inside the PDF container
+  useEffect(() => {
+    if (!parentRef.current) return;
+
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of Array.from(mutation.addedNodes)) {
+          if (node instanceof HTMLElement && node.id?.startsWith('highlight-')) {
+            const regionIdStr = node.id.replace('highlight-', '');
+            const regionId = parseInt(regionIdStr, 10);
+            
+            // Check if this region's latex exists in search bar content
+            const region = pdfDocumentMetadata.regions.find(r => r.id === regionId);
+            if (region?.latex) {
+              const normalizedSearchContent = normalizeLatex(searchBarContent);
+              const normalizedRegionLatex = normalizeLatex(region.latex);
+              if (normalizedSearchContent.includes(normalizedRegionLatex)) {
+                node.classList.add(pageStyles.selected);
+                lastAppliedHighlightsRef.current.add(regionId);
+              }
+            }
+          }
+        }
+      }
+    });
+
+    observer.observe(parentRef.current, {
+      childList: true,
+      subtree: true,
+    });
+
+    return () => observer.disconnect();
+  }, [searchBarContent, pdfDocumentMetadata.regions]);
+
+  // Scroll to requested page after load
+  useEffect(() => {
+    if (!scrollToPage || !numPages) return;
+
+    const idx = Math.max(0, Math.min(numPages - 1, scrollToPage - 1));
+    rowVirtualizer.scrollToIndex(idx, { align: 'center' });
+  }, [scrollToPage, numPages, rowVirtualizer]);
 
   const handleSelectionAction = (selectedText: string) => {
-    // Check if the selected text is empty
     if (!selectedText.trim()) {
-      console.warn('No text selected for MathMex search.');
+      console.warn('No text selected for math insertion.');
       return;
     }
-    // Always append selected text as plain text
-    mathFieldRef.current?.setValue(mathFieldRef.current.getValue() + ' ' + "\\text{" + selectedText + "}");
-  };
 
-  const handleSearch = () => {
-    const searchValue = mathFieldRef.current?.getValue();
-    if (searchValue) {
-      console.log("Performing search for:", searchValue);
-      // Here you would integrate your actual search logic,
-      // e.g., calling an API, filtering data, etc.
-      performSearch(searchValue)
-        .then(results => {
-          console.log("Search results:", results);
-          setCurrentQueryAndResults(prev => [...prev, { query: searchValue, results }]);
-          // Optionally clear the math field after search
-          if (mathFieldRef.current) {
-            mathFieldRef.current.setValue('');
-            mathFieldRef.current.focus();
-          }
-        })
-        .catch(error => {
-          console.error("Search failed:", error);
-        });
-    } else {
-      console.warn("Search initiated, but the MathField is empty.");
-    }
-  };
+    const escapedText = selectedText
+      .replace(/\\/g, '\\\\')
+      .replace(/[{}]/g, '');
 
-  useEffect(() => {
-    console.log('Mathfield value changed:', mathFieldRef.current?.getValue());
-  }, [mathFieldRef.current?.latex]);
+    const field = mathFieldRef.current;
+    if (!field) return;
+
+    field.setValue(`${field.getValue()} \\text{${escapedText}}`);
+    field.focus();
+  };
 
   return (
-    <div className={styles.container}>
-      <div className={styles.content}>
+    <div className={styles.pdfColumn}>
+      <div
+        ref={parentRef}
+        className={styles.pdfContent}
+        style={{ overflow: 'auto' }}
+      >
         <Document
-          file={`${API}/get_pdf/${pdfDocumentMetadata?.url}`}
+          file={`${API}/get_pdf/${pdfDocumentMetadata.url}`}
           onLoadSuccess={onDocumentLoadSuccess}
           onLoadError={onDocumentLoadError}
         >
-          {pageNumbers.map((pageNumber) => (
-            <div key={pageNumber} className={styles.pdfPageWrapper}>
-              <PDFPage
-                pageNumber={pageNumber}
-                regions={pdfDocumentMetadata?.regions.filter(region => region.pageNumber === pageNumber) || []}
-                pdfUrl={pdfDocumentMetadata?.url || ''}
-                onHighlightClick={latex => {
-                  if (mathFieldRef.current) {
-                    mathFieldRef.current.setValue(mathFieldRef.current.getValue() + ' ' + latex);
-                    mathFieldRef.current.focus();
-                  }
-                }}
-              />
-            </div>
-          ))}
-        </Document>
-        <SelectionButton onAction={handleSelectionAction} />
-      </div>
-      <div className={styles.sidebar}>
-        <div className={styles.searchBarContainer}>
-          <button
-            className={styles.modeToggleButton}
-            onClick={() => setIsMathMode(!isMathMode)}
-            title={isMathMode ? "Switch to Text Mode" : "Switch to Math Mode"}
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              maxWidth: '800px',
+              margin: '0 auto',
+              position: 'relative',
+            }}
           >
-            {isMathMode ? "𝟄𝐚𝐛𝐜" : "𝑎𝑏𝑐"} {/* Unicode characters for visual representation */}
-          </button>
-          <math-field ref={mathFieldRef} placeholder="\[Search\ mathematics...\]" style={{ flexGrow: 1 }}></math-field>
-          <button
-            className={styles.searchButton}
-            onClick={handleSearch}
-          >
-            Search
-          </button>
-        </div>
-        <div style={{ flexGrow: 1, overflowY: 'auto', padding: '10px 0' }}>
-          {currentQueryAndResults.length > 0 ? (
-            currentQueryAndResults.map((item, index) => (
-              <QueryAndResult
-                key={index}
-                query={item.query}
-                results={item.results}
-              />
-            ))
-          ) : (
-                        <p className={styles.noResultsMessage}>
-                            Perform a search to see results here.
-                        </p>
-                    )}
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const pageNumber = virtualRow.index + 1;
+
+              return (
+                <div
+                  key={virtualRow.key}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div className={styles.pdfPageWrapper}>
+                    <PDFPage
+                      pageNumber={pageNumber}
+                      regions={
+                        pdfDocumentMetadata.regions.filter(
+                          (r) => r.pageNumber === pageNumber
+                        )
+                      }
+                      pdfUrl={pdfDocumentMetadata.url}
+                      onHighlightClick={(latex) => {
+                        const field = mathFieldRef.current;
+                        if (!field) return;
+
+                        const newValue = `${field.getValue()} ${latex}`;
+                        field.setValue(newValue);
+                        onSearchBarContentChange(newValue);
+                        field.focus();
+                      }}
+                    />
+                  </div>
                 </div>
+              );
+            })}
+          </div>
+        </Document>
       </div>
+
+      <SelectionButton onAction={handleSelectionAction} />
     </div>
   );
 }
 
-export default PDFViewer;
+export default memo(PDFViewer);

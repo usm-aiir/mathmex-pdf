@@ -1,9 +1,16 @@
-import { useState, useEffect } from "react";
-import type { FormulaRegion, PDFDocumentMetadata } from "./types";
-import PDFViewer from "./components/PDFViewer";
+import { useState, useRef, useEffect } from "react";
+import type { FormulaRegion, PDFDocumentMetadata, SpokenMathData } from "./types";
+import type { MathfieldElement } from 'mathlive';
 import PDFOpener from "./components/PDFOpener";
 import PDFLoadingPage from "./components/PDFLoadingPage";
 import PDFErrorPage from "./components/PDFErrorPage";
+import FormulaSidebar from "./components/FormulaSidebar";
+import type { SearchResult } from "./components/QueryAndResult";
+import HistorySidebar from "./components/HistorySidebar";
+import PDFContainer from "./components/PDFContainer";
+import QueryAndResult from "./components/QueryAndResult";
+import PDFstyles from './components/PDFViewer.module.css';
+import { fetchAllSpokenMath, downloadAnnotatedPdf, triggerAnnotatedPdfDownload } from "./api/pdf";
 
 import './App.css';
 import './styles/global.css';
@@ -56,6 +63,7 @@ async function fetchPDFRegions(pdfUrl: string): Promise<FormulaRegion[]> {
     },
   }));
 }
+ 
 
 /**
  * Fetches and retrieves regions from a PDF document based on the provided URL.
@@ -68,11 +76,13 @@ async function fetchPDFRegions(pdfUrl: string): Promise<FormulaRegion[]> {
  * @param {string} pdfUrl - The URL of the PDF document to extract regions from.
  * @returns {Promise<Array<Object>>} A promise that resolves to an array of region objects.
  */
-async function fetchPDFMetadata(pdfUrl: string, onProgress: (progress: number) => void): Promise<PDFDocumentMetadata> {
+async function fetchPDFMetadata(pdfUrl: string, onProgress: (progress: number) => void): Promise<PDFDocumentMetadata & { formulas: string[] }> {
   const regions = await fetchPDFRegions(pdfUrl);
   onProgress(50); // Update progress after fetching regions
   let regionsLoaded = 0;
+  const formulas: string[] = [];
   // Make it so that the regions are all fetched in parallel
+  
   const fetchPromises = regions.map(region =>
     fetch(`${API}/get_latex_for_region/${region.id}/${pdfUrl}`)
       .then(response => {
@@ -91,24 +101,38 @@ async function fetchPDFMetadata(pdfUrl: string, onProgress: (progress: number) =
         }));
       })
   );
+
   const latexResults = await Promise.all(fetchPromises);
   for (const region of regions) {
     const latexResult = latexResults.find(result => result.id === region.id);
-    region.latex = latexResult ? latexResult.latex : '[Formula loading error]';
+    const latex = latexResult ? latexResult.latex : '[Formula loading error]';
+
+    region.latex = latex;
+
+    if (latex.trim()) {
+      formulas.push(latex);
+    }
   }
   return {
     url: pdfUrl,
     regions,
+    formulas
   };
+}
+
+interface PDFSearchHistoryItem {
+  query: string
+  results: SearchResult[]
 }
 
 function App() {
   const path = window.location.pathname;
   const delimiterIndex = path.indexOf('/pdf/');
   const pdfUrl = delimiterIndex !== -1 ? path.substring(delimiterIndex + 5) : '';
+  const mathFieldRef = useRef<MathfieldElement>(null);
   if (!pdfUrl || pdfUrl.trim() === '') {
     return <>
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden',position: "relative", }}>
         <Header />
         <PDFOpener />
       </div>
@@ -117,13 +141,127 @@ function App() {
   const [pdfDocumentMetadata, setPdfDocumentMetadata] = useState<PDFDocumentMetadata | null>(null);
   const [progress, setProgress] = useState(0);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [selectedFormula] = useState<string | null>(null);
+  const [searchBarContent, setSearchBarContent] = useState<string>('');
+  const [scrollToPage, setScrollToPage] = useState<number | undefined>();
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false)
+  const [searchHistory, setSearchHistory] = useState<PDFSearchHistoryItem[]>(() => {
+    const stored = localStorage.getItem("pdfSearchHistory")
+    return stored ? JSON.parse(stored) : []
+  })
+  const [isMathMode, setIsMathMode] = useState<boolean>(false); // State to track mode
+  
+  // Spoken math / accessibility states
+  const [spokenMathLoaded, setSpokenMathLoaded] = useState(false);
+  const [isDownloadingAnnotatedPdf, setIsDownloadingAnnotatedPdf] = useState(false);
+  const [isSearching, setIsSearching] = useState<boolean>(false); // State to track loading
+  const [searchError, setSearchError] = useState<string | null>(null); // State to track search errors
+
+const [currentQueryAndResults, setCurrentQueryAndResults] = useState<{
+  query: string;
+  results: SearchResult[];
+}[]>([]);
+
+
+
+useEffect(() => {
+  const element = mathFieldRef.current;
+  if (!element) return; // Bail out if ref not yet assigned
+
+  // Initialize in text mode
+  element.executeCommand("switchMode", "text");
+  element.focus();
+
+  // Input handler
+  const handleInput = () => {
+    if (element.getValue().trim() === '') {
+      element.executeCommand("switchMode", "text");
+    }
+  };
+
+  // Mode change handler
+  const handleModeChange = (event: CustomEvent) => {
+    setIsMathMode(event.detail.mode === 'math');
+  };
+
+  element.addEventListener('input', handleInput);
+  element.addEventListener('mode-change', handleModeChange);
+
+  return () => {
+    element.removeEventListener('input', handleInput);
+    element.removeEventListener('mode-change', handleModeChange);
+  };
+}, []); // run once
+
+useEffect(() => {
+  if (mathFieldRef.current) {
+    mathFieldRef.current.executeCommand("switchMode", isMathMode ? "math" : "text");
+    mathFieldRef.current.focus(); // Keep focus on the mathfield after mode switch
+  }
+}, [isMathMode]); // Re-run when isMathMode changes
+
+
   useEffect(() => {
+
     fetchPDFMetadata(pdfUrl, (progressValue: number) => {
       setProgress(progressValue);
     })
       .then(metadata => setPdfDocumentMetadata(metadata))
       .catch(error => { console.error('Error fetching PDF metadata:', error), setPdfError(error.message || 'An error occurred while fetching PDF metadata') });
   }, [pdfUrl]);
+
+  // Fetch spoken math data after metadata is loaded (for accessibility)
+  useEffect(() => {
+    if (!pdfDocumentMetadata || spokenMathLoaded) return;
+    
+    fetchAllSpokenMath(pdfUrl)
+      .then((spokenMathData: SpokenMathData[]) => {
+        if (spokenMathData.length > 0) {
+          // Update regions with spoken math
+          setPdfDocumentMetadata(prev => {
+            if (!prev) return prev;
+            const updatedRegions = prev.regions.map(region => {
+              const match = spokenMathData.find(s => s.id === region.id);
+              return match ? { ...region, spokenMath: match.spoken_math } : region;
+            });
+            return { ...prev, regions: updatedRegions };
+          });
+        }
+        setSpokenMathLoaded(true);
+      })
+      .catch(error => {
+        console.error('Error fetching spoken math:', error);
+        setSpokenMathLoaded(true); // Mark as loaded even on error to prevent retries
+      });
+  }, [pdfDocumentMetadata, pdfUrl, spokenMathLoaded]);
+
+  // Handler to download annotated PDF with spoken math tooltips
+  const handleDownloadAnnotatedPdf = async () => {
+    setIsDownloadingAnnotatedPdf(true);
+    try {
+      const blob = await downloadAnnotatedPdf(pdfUrl);
+      if (blob) {
+        // Extract filename from URL or use default
+        const urlParts = pdfUrl.split('/');
+        const originalFilename = urlParts[urlParts.length - 1] || 'document';
+        const annotatedFilename = originalFilename.replace('.pdf', '_annotated.pdf');
+        triggerAnnotatedPdfDownload(blob, annotatedFilename);
+      } else {
+        console.error('Failed to download annotated PDF');
+      }
+    } catch (error) {
+      console.error('Error downloading annotated PDF:', error);
+    } finally {
+      setIsDownloadingAnnotatedPdf(false);
+    }
+  };
+      /* ---------- Persist history ---------- */
+      useEffect(() => {
+        localStorage.setItem(
+          "pdfSearchHistory",
+          JSON.stringify(searchHistory)
+        )
+      }, [searchHistory])
   if (!pdfDocumentMetadata) {
     if (pdfError) {
       return (

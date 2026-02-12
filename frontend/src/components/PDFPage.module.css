@@ -19,3 +19,35 @@
     position: absolute; /* Positions it out of flow */
     /* Other properties like overflow: hidden; text-indent: -9999px; could also be used for screen readers */
 }
+
+/* Applied to a highlight container when its formula exists in the search bar.
+   Using a class avoids frequent inline style mutations and is cheap to toggle. */
+.selected {
+    background-color: rgba(239, 68, 68, 0.08);
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.4), 
+                0 0 20px rgba(239, 68, 68, 0.3);
+    border-radius: 3px;
+    animation: fadeIn 0.3s ease-in, pulse 2s ease-in-out infinite;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.4), 
+                    0 0 20px rgba(239, 68, 68, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.6), 
+                    0 0 25px rgba(239, 68, 68, 0.5);
+    }
+}

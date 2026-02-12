@@ -36,6 +36,8 @@ function QueryAndResult({ query, results }: QueryAndResultProps) {
     }, [query]); // Re-run effect if the query changes
 
     return (
+        <div>
+
         <div className={styles.container}>
             {/* Query Section */}
             <div className={styles.querySection}>
@@ -47,7 +49,7 @@ function QueryAndResult({ query, results }: QueryAndResultProps) {
             {/* Results Section */}
             <div className={styles.resultsSection}>
                 <div className={styles.resultsLabel}>Results:</div>
-                {results.length > 0 ? (
+                {results && results.length > 0 ? (
                     // Slice results to ensure only up to 5 are displayed
                     results.slice(0, 5).map((result, index) => (
                         <SearchResultItem key={index} result={result} />
@@ -56,6 +58,7 @@ function QueryAndResult({ query, results }: QueryAndResultProps) {
                     <p className={styles.noResults}>No results found for this query.</p>
                 )}
             </div>
+        </div>
         </div>
     );
 }
